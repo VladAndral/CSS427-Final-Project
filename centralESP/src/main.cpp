@@ -12,11 +12,21 @@
 #endif
 #include "ESPNowW.h"
 
-// Red flag sticky is central
+/*
+            Red flag sticky is central
+*/
 
-// Must be the receiver's actual mac address; you can't just make one up here
+/*
+    Discover built-in/default mac address by running:
+        Serial.begin(####);
+        WiFi.mode(WIFI_MODE_STA);
+        Serial.println(WiFi.macAddress());
+
+    You can also make your own mac address, but you must use set_mac function
+*/
 uint8_t my_mac[] = {0xA0, 0xB7, 0x65, 0x1A, 0x7C, 0x30};
-uint8_t receiver_mac[] = {0xA0, 0xB7, 0x65, 0x22, 0xFF, 0x94};
+// Must be the receiver's actual mac address; you can't just make one up here
+uint8_t peripheral_mac[] = {0xA0, 0xB7, 0x65, 0x22, 0xFF, 0x94};
 
 // Callback function
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -38,14 +48,21 @@ void setup() {
 #endif
     WiFi.disconnect();
     ESPNow.init();
-    ESPNow.add_peer(receiver_mac);
+
+    // If you created a custom mac address, must use this function
+    // ESPNow.set_mac(my_mac);
+
+    ESPNow.add_peer(peripheral_mac);
+    // Must add peer to send data back to it
     ESPNow.reg_send_cb(onDataSent);
+    // Register callback functions
     ESPNow.reg_recv_cb(onRecv);
 }
 
 void loop() {
     static uint8_t a = 0;
     delay(1000);
-    ESPNow.send_message(receiver_mac, &a, 1);
+    ESPNow.send_message(peripheral_mac, &a, 1);
+    // ++ operation increments the var after being used
     Serial.println(a++);
 }
