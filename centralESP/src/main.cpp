@@ -14,8 +14,19 @@
 
 // Red flag sticky is central
 
-// Must be the receiver's actual mac address; you can't just make one up
+// Must be the receiver's actual mac address; you can't just make one up here
+uint8_t my_mac[] = {0xA0, 0xB7, 0x65, 0x1A, 0x7C, 0x30};
 uint8_t receiver_mac[] = {0xA0, 0xB7, 0x65, 0x22, 0xFF, 0x94};
+
+// Callback function
+void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.print("^ Last Packet Send Status:\t");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
+    Serial.println("Got what peri sent");
+}
 
 void setup() {
     Serial.begin(9600);
@@ -28,6 +39,8 @@ void setup() {
     WiFi.disconnect();
     ESPNow.init();
     ESPNow.add_peer(receiver_mac);
+    ESPNow.reg_send_cb(onDataSent);
+    ESPNow.reg_recv_cb(onRecv);
 }
 
 void loop() {

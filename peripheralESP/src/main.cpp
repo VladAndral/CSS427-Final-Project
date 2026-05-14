@@ -20,7 +20,8 @@
         WiFi.mode(WIFI_MODE_STA);
         Serial.println(WiFi.macAddress());
 */
-uint8_t mac[] = {0xA0, 0xB7, 0x65, 0x22, 0xFF, 0x94};
+uint8_t my_mac[] = {0xA0, 0xB7, 0x65, 0x22, 0xFF, 0x94};
+uint8_t controller_mac[] = {0xA0, 0xB7, 0x65, 0x1A, 0x7C, 0x30};
 
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
     char macStr[18];
@@ -38,7 +39,18 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
         Serial.printf("(hex) %x", data[i]);
     }
     Serial.println("");
+
+    uint8_t *senderMac_copy = (uint8_t *)mac_addr;
+    uint8_t *data_copy = (uint8_t *)data;
+    ESPNow.send_message(senderMac_copy, data_copy, data_len);   
 }
+
+// Callback function
+void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.print("^ Last Packet Send Status:\t");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
 
 void setup() {
     Serial.begin(9600);
@@ -49,8 +61,11 @@ void setup() {
     WiFi.mode(WIFI_MODE_STA);
 #endif
     WiFi.disconnect();
-    ESPNow.set_mac(mac);
+    // You can create a custom mac address and use this function to set it
+    // ESPNow.set_mac(my_mac);
     ESPNow.init();
+    ESPNow.add_peer(controller_mac);
+    ESPNow.reg_send_cb(onDataSent);
     ESPNow.reg_recv_cb(onRecv);
 }
 
