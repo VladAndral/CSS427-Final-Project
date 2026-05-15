@@ -15,7 +15,9 @@
 
 const int PIR_pin = GPIO_NUM_13;
 
-volatile bool intruderDetected = false;
+volatile bool movementDetected = false;
+volatile bool speechDetected = false;
+volatile bool deviceDetected = false;
 bool prevDetection = false;
 
 int64_t timeSinceBoot;
@@ -62,9 +64,15 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void readPIR() {
-    intruderDetected = digitalRead(PIR_pin);
+void motionDetected() {
+    movementDetected = digitalRead(PIR_pin);
 }
+
+void deviceDetected () {
+    // If HIGH, traffic detected
+    // If LOW, no traffic detected
+}
+
 
 void setup() {
     Serial.begin(9600);
@@ -85,7 +93,8 @@ void setup() {
     ESPNow.reg_recv_cb(onRecv);
     // PIR stuff
     pinMode(PIR_pin, INPUT_PULLDOWN);
-    attachInterrupt(digitalPinToInterrupt(PIR_pin), readPIR, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(PIR_pin), motionDetected, RISING);
+    attachInterrupt(digitalPinToInterrupt(PIR_pin), deviceDetected, CHANGE);
 
     String timeLoggingMsg = "Times shown are relative to system bootup";
     const char * logMsgConvert = timeLoggingMsg.c_str();
@@ -94,7 +103,9 @@ void setup() {
 
 void loop() {
     cli();
-    bool PIRDetectVar = intruderDetected;
+    bool PIRDetectVar = movementDetected;
+    bool photoVar = speechDetected;
+    bool deviceVar = deviceDetected;
     sei();
     if (PIRDetectVar) {
         
@@ -117,7 +128,12 @@ void loop() {
         // Serial.println("\r\n    \r\n");
         // Serial.println(charSentOut);
         cli();
-        intruderDetected = false;
+        movementDetected = false;
         sei();
+    } else if (photoVar) {
+        return;
+    } else if (deviceVar) {
+        return;
     }
+
 }
