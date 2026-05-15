@@ -94,9 +94,9 @@ void setup() {
 
 void loop() {
     cli();
-    bool localDetectionVar = intruderDetected;
+    bool PIRDetectVar = intruderDetected;
     sei();
-    if (localDetectionVar) {
+    if (PIRDetectVar) {
         
         int64_t timeSinceBoot = millis();
         char buffer[64];
@@ -111,6 +111,7 @@ void loop() {
 
         const char * charConvert = PIR_sense_time_str.c_str();
 
+        Serial.println("Sending PIR sensor info to controller");
         // NOTE: strlen does NOT count the null terminator (ASCII 0)
         ESPNow.send_message(controller_mac, (uint8_t*)charConvert, strlen(charConvert));
         // Serial.println("\r\n    \r\n");
