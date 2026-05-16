@@ -13,8 +13,9 @@
 #endif
 #include "ESPNowW.h"
 
-const int PIR_pin = GPIO_NUM_13;
-const int photosensor_pin = 14;
+#define PIR_PIN 13
+#define PHOTO_PIN 14
+#define DEVICE_NETWORK_PIN 19
 
 volatile bool movementDetected = false;
 volatile bool speechDetected = false;
@@ -23,8 +24,18 @@ bool prevDetection = false;
 
 long noiseFloor = 0;
 int noiseLimit = 5;
+int pollFreq = 5;
+int pollTime = 250;
+int photoData;
+
+long start_time;
+long end_time;
 
 int64_t timeSinceBoot;
+
+#define PIR_DATA_ID 1
+#define PHOTO_DATA_ID 2
+#define DEVICE_NETWORK_DATA_ID 3
 
 /*
 Green flag sticky is peripheral
@@ -38,143 +49,168 @@ uint8_t controller_mac[] = {0xA0, 0xB7, 0x65, 0x1A, 0x7C, 0x30};
 
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
-	char macStr[18];
-	snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-	mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
-	mac_addr[5]);
-	Serial.print("Last Packet Recv from: ");
-	Serial.println(macStr);
-	Serial.print("Last Packet Recv Data: ");
-	// if it could be a string, print as one
-	if (data[data_len - 1] == 0)
-	Serial.printf("%s\n", data);
-	// additionally print as hex
-	for (int i = 0; i < data_len; i++)
-	{
-		Serial.printf("(hex) %x", data[i]);
-	}
-	Serial.println("");
-	
-	// Just duplicating what was received and sending it back to controller
-	// Must cast because compiler will not let you copy const data
-	uint8_t *senderMac_copy = (uint8_t *)mac_addr;
-	uint8_t *data_copy = (uint8_t *)data;
-	ESPNow.send_message(senderMac_copy, data_copy, data_len);
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+    mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
+    mac_addr[5]);
+    Serial.print("Last Packet Recv from: ");
+    Serial.println(macStr);
+    Serial.print("Last Packet Recv Data: ");
+    // if it could be a string, print as one
+    if (data[data_len - 1] == 0)
+    Serial.printf("%s\n", data);
+    // additionally print as hex
+    for (int i = 0; i < data_len; i++)
+    {
+        Serial.printf("(hex) %x", data[i]);
+    }
+    Serial.println("");
+    
+    // Just duplicating what was received and sending it back to controller
+    // Must cast because compiler will not let you copy const data
+    uint8_t *senderMac_copy = (uint8_t *)mac_addr;
+    uint8_t *data_copy = (uint8_t *)data;
+    ESPNow.send_message(senderMac_copy, data_copy, data_len);
 }
 
 // Function that runs if I send something
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-	Serial.print("^ Last Packet Send Status:\t");
-	Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+    Serial.print("^ Last Packet Send Status:\t");
+    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
 void motionDetectedISR() {
-	movementDetected = digitalRead(PIR_pin);
+    movementDetected = digitalRead(PIR_PIN);
 }
 
 void deviceDetectedISR() {
-	// If HIGH, traffic detected
-	// If LOW, no traffic detected
+    // If HIGH, traffic detected
+    // If LOW, no traffic detected
 }
 
+void sendMessage(int sensorTypeID){
+    unsigned long timeSinceBoot = millis();
+    int seconds = (timeSinceBoot/1000)%60;
+    int minutes = ((timeSinceBoot/1000)/60)%60;
+    int hours = ((timeSinceBoot/1000)/60)/60;
+
+    std::string timeSinceBoot_str = "";
+    timeSinceBoot_str += std::to_string(hours);
+    timeSinceBoot_str += "hr ";
+    timeSinceBoot_str += std::to_string(minutes);
+    timeSinceBoot_str += "min ";
+    timeSinceBoot_str += std::to_string(seconds);
+    timeSinceBoot_str += "sec ";
+
+    const char* timeSinceBoot_chars = timeSinceBoot_str.c_str();
+    
+    String output_str = "";
+    const char* output_chars = output_str.c_str();
+    
+    switch (sensorTypeID) {
+        case PIR_DATA_ID:
+            output_str += "PIR Sensor: Movement detected at ";
+            output_str += timeSinceBoot_chars;
+            output_str += "~";
+            
+            output_chars = output_str.c_str();
+            
+            Serial.println("Sending PIR sensor info to controller");
+            // NOTE: strlen does NOT count the null terminator (ASCII 0)
+            // Serial.println("\r\n    \r\n");
+            // Serial.println(charSentOut);
+            break;
+        default:
+            Serial.println("Can't send message because idk what this sensor is...");
+    }
+
+    ESPNow.send_message(controller_mac, (uint8_t*)output_chars, strlen(output_chars));
+}
 
 void setup() {
-	Serial.begin(9600);
-	Serial.println("ESPNow receiver Demo");
-	#ifdef ESP8266
-	WiFi.mode(WIFI_STA); // MUST NOT BE WIFI_MODE_NULL
-	#elif ESP32
-	WiFi.mode(WIFI_MODE_STA);
-	#endif
-	WiFi.disconnect();
-	esp_wifi_set_channel(12, WIFI_SECOND_CHAN_NONE);
-	ESPNow.init();
-	// Must add peer to send data back to it
-	ESPNow.set_mac(my_mac);
-	ESPNow.add_peer(controller_mac);
-	// Register callback functions
-	ESPNow.reg_send_cb(onDataSent);
-	ESPNow.reg_recv_cb(onRecv);
-	// PIR stuff
-	pinMode(PIR_pin, INPUT_PULLDOWN);
-	attachInterrupt(digitalPinToInterrupt(PIR_pin), motionDetectedISR, RISING);
-	attachInterrupt(digitalPinToInterrupt(PIR_pin), deviceDetectedISR, CHANGE);
-	
-	String timeLoggingMsg = "Times shown are relative to system bootup";
-	const char * logMsgConvert = timeLoggingMsg.c_str();
-	ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
+    Serial.begin(9600);
+    Serial.println("ESPNow receiver Demo");
+    #ifdef ESP8266
+    WiFi.mode(WIFI_STA); // MUST NOT BE WIFI_MODE_NULL
+    #elif ESP32
+    WiFi.mode(WIFI_MODE_STA);
+    #endif
+    WiFi.disconnect();
+    esp_wifi_set_channel(12, WIFI_SECOND_CHAN_NONE);
+    ESPNow.init();
+    // Must add peer to send data back to it
+    ESPNow.set_mac(my_mac);
+    ESPNow.add_peer(controller_mac);
+    // Register callback functions
+    ESPNow.reg_send_cb(onDataSent);
+    ESPNow.reg_recv_cb(onRecv);
+    // PIR stuff
+    pinMode(PIR_PIN, INPUT_PULLDOWN);
+    attachInterrupt(digitalPinToInterrupt(PIR_PIN), motionDetectedISR, RISING);
+    attachInterrupt(digitalPinToInterrupt(DEVICE_NETWORK_PIN), deviceDetectedISR, CHANGE);
+    
+    String timeLoggingMsg = "Times shown are relative to system bootup~";
+    const char * logMsgConvert = timeLoggingMsg.c_str();
+    ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
 }
 
-void calibratingPhoto(){
-	long count = 0;
-	long reading = 0;
-	long start_time = millis();
-	long end_time = millis();
-	while(end_time - start_time <= 2000){
-		reading += analogRead(photosensor_pin);
-		count++;
-		long end_time = millis();
-	}
-	long noiseFloor = reading / count;
-}
+void calibratePhoto(){
+    long count = 0;
+    long reading = 0;
 
+    while(end_time - start_time <= 2000){
+        reading += analogRead(PHOTO_PIN);
+        count++;
+        end_time = millis();
+    }
+    long noiseFloor = reading / count;
+}
 
 void readPhoto(){
-	long start_timePhoto = millis();
-	long end_time = millis();
-	int data = analogRead(photosensor_pin);
-	
-	while(end_time - start_timePhoto < 1000){
-		end_time = millis();
-		data = analogRead(photosensor_pin);
-		if(std::abs(data - noiseFloor) > noiseLimit){
-			Serial.println("NOISE DETECTED!");
-			//need to send to controller still since this wont be connected to laptop
-			//ESPNow.send_message();
-		}
-	}
+    int largestReading = analogRead(PHOTO_PIN);
+    int curReading = 0;
+    
+    for (int i = 0; i < pollFreq; i++) {
+        start_time = end_time = millis();
+
+        while(end_time - start_time < pollTime/pollFreq) end_time = millis();
+
+        cli();
+        curReading = analogRead(PHOTO_PIN);
+        sei();
+        largestReading = (curReading > largestReading) ? curReading : largestReading;
+    }
 }
 
-const char* getTimeinMS(){
-	int64_t timeSinceBoot = millis();
-	char buffer[64];
-	itoa(timeSinceBoot, buffer, 10);
-	const char* timeSinceBoot_str = buffer;
-	return timeSinceBoot_str;
-}
 void loop() {
-	cli();
-	bool PIRDetectVar = movementDetected;
-	bool photoVar = speechDetected;
-	bool deviceVar = deviceDetected;
-	sei();
-	if (PIRDetectVar) {
-		
-		int64_t timeSinceBoot = millis();
-		char buffer[64];
-		itoa(timeSinceBoot, buffer, 10);
-		const char* timeSinceBoot_str = buffer;
-		String PIR_sense_time_str = "";
-		
-		PIR_sense_time_str += "PIR Sensor: Movement detected at ";
-		PIR_sense_time_str += timeSinceBoot_str;
-		PIR_sense_time_str += "time units change later";
-		PIR_sense_time_str += "~";
-		
-		const char * charConvert = PIR_sense_time_str.c_str();
-		
-		Serial.println("Sending PIR sensor info to controller");
-		// NOTE: strlen does NOT count the null terminator (ASCII 0)
-		ESPNow.send_message(controller_mac, (uint8_t*)charConvert, strlen(charConvert));
-		// Serial.println("\r\n    \r\n");
-		// Serial.println(charSentOut);
-		cli();
-		movementDetected = false;
-		sei();
-	} else if (photoVar) {
-		return;
-	} else if (deviceVar) {
-		return;
-	}
-	
+    // cli();
+    // Serial.println("in critical section");
+    bool PIRDetectVar = movementDetected;
+    bool photoVar = speechDetected;
+    bool deviceVar = deviceDetected;
+    // sei();
+
+    if (PIRDetectVar) {
+        Serial.println("Movement detected, sending message to controller");
+        sendMessage(PIR_DATA_ID);
+        cli();
+        movementDetected = false;
+        sei();
+    }
+    
+    if (photoVar) {
+        if (std::abs(photoData-noiseFloor) > std::abs(noiseFloor-noiseLimit)) {
+            sendMessage(PHOTO_DATA_ID);
+            cli();
+            speechDetected = false;
+            sei();
+        }
+    }
+    
+    if (deviceVar) {
+        cli();
+        deviceDetected = false;
+        sei();
+    }
+    
 }
