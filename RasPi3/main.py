@@ -8,8 +8,8 @@ serObj = serial.Serial('/dev/serial0', 9600, timeout=1)
 print("bouta send")
 serObj.write(b"Sent from Pi~")
 # print("written")
-peri_response = serObj.readline()
-print(peri_response.decode('utf-8'))
+peri_response = serObj.read_until(b"~")
+print(peri_response.decode('utf-8')[:-1])
 
 
 
