@@ -218,6 +218,6 @@ void loop() {
     if (Serial.available()) {
         String data = Serial.readStringUntil('~');
         Serial.print("ESP32: I received your message: ");
-        Serial.println(data);
+        Serial.println(data + "~");
     }
 }
