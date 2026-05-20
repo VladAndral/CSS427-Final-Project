@@ -5,7 +5,9 @@ import serial
 PERI_INTR_TRIG_PIN = LED("GPIO17")
 
 serObj = serial.Serial('/dev/serial0', 9600, timeout=1)
+print("bouta send")
 serObj.write(b"Sent from Pi~")
+# print("written")
 peri_response = serObj.readline()
 print(peri_response.decode('utf-8'))
 
