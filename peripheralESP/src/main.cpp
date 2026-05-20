@@ -13,6 +13,10 @@
 #endif
 #include "ESPNowW.h"
 
+/*
+Green flag sticky is peripheral
+*/
+
 #define PIR_PIN 13
 #define PHOTO_PIN 14
 #define DEVICE_NETWORK_PIN 19
@@ -37,9 +41,7 @@ int64_t timeSinceBoot;
 #define PHOTO_DATA_ID 2
 #define DEVICE_NETWORK_DATA_ID 3
 
-/*
-Green flag sticky is peripheral
-*/
+
 
 // See controller for setting custom mac address
 uint8_t my_mac[] = {0x22, 0x22, 0x22, 0x22, 0x22, 0x22};
@@ -212,5 +214,10 @@ void loop() {
         deviceDetected = false;
         sei();
     }
-    
+
+    if (Serial.available()) {
+        String data = Serial.readStringUntil('~');
+        Serial.print("ESP32: I received your message: ");
+        Serial.println(data);
+    }
 }
