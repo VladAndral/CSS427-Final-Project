@@ -4,6 +4,7 @@
  * you can do whatever you want with this stuff. If we meet some day, and you
  * think this stuff is worth it, you can buy me a beer in return
  */
+#include "../../utils.h"
 #include <Arduino.h>
 #ifdef ESP8266
 #include <ESP8266WiFi.h>
@@ -71,10 +72,33 @@ void setup() {
     ESPNow.reg_recv_cb(onRecv);
 }
 
+String[] tokenize(String& str) {
+    String toReturn[];
+    String token = "";
+    for (char curChar : str) {
+        while (curChar != ' ') token += curChar;
+
+    }
+}
+
 void loop() {
     // static uint8_t a = 0;
     // delay(1000);
     // ESPNow.send_message(peripheral_mac, &a, 1);
     // ++ operation increments the var after being used
     // Serial.println(a++);
+
+    if (Serial.available()) {
+        String userInput = Serial.readStringUntil('\n');
+
+        String* tokenize(&userInput);
+    }
+
+
 }
+
+/*
+    [<sensor>/system] set [pollRate/sensitivity] <uint>
+    demand <sensor>
+
+*/
