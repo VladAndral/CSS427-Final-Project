@@ -4,6 +4,7 @@
  * you can do whatever you want with this stuff. If we meet some day, and you
  * think this stuff is worth it, you can buy me a beer in return
  */
+#include <utils.h>
 #include <Arduino.h>
 #ifdef ESP8266
 #include <ESP8266WiFi.h>
@@ -16,18 +17,6 @@
 /*
             Red flag sticky is central
 */
-
-/*
-    Discover built-in/default mac address by running:
-        Serial.begin(####);
-        WiFi.mode(WIFI_MODE_STA);
-        Serial.println(WiFi.macAddress());
-
-    You can also make your own mac address, but you must use set_mac function
-*/
-uint8_t my_mac[] = {0xA0, 0xB7, 0x65, 0x1A, 0x7C, 0x30};
-// Must be the receiver's actual mac address; you can't just make one up here
-uint8_t peripheral_mac[] = {0x22, 0x22, 0x22, 0x22, 0x22, 0x22};
 
 // Callback function
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -59,11 +48,11 @@ void setup() {
     WiFi.mode(WIFI_MODE_STA);
 #endif
     WiFi.disconnect();
-    esp_wifi_set_channel(12, WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_channel(PROJ_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
     ESPNow.init();
 
     // If you created a custom mac address, must use this function
-    ESPNow.set_mac(my_mac);
+    ESPNow.set_mac(central_mac);
     ESPNow.add_peer(peripheral_mac);
     // Must add peer to send data back to it
     ESPNow.reg_send_cb(onDataSent);
@@ -75,6 +64,32 @@ void loop() {
     // static uint8_t a = 0;
     // delay(1000);
     // ESPNow.send_message(peripheral_mac, &a, 1);
-    // ++ operation increments the var after being used
+    // // ++ operation increments the var after being used
     // Serial.println(a++);
+
+    if (Serial.available()) {
+        Serial.print("Received user input: ");
+        String userInput = Serial.readStringUntil('\n');
+        Serial.println(userInput);
+
+        // String tokenArray[TOK_ARR_SIZE] = {""};
+
+        // tokenize(userInput, tokenArray);
+
+        // for (String token : tokenArray) Serial.println(token);
+        // userInput += '~';
+        userInput.setCharAt(userInput.length()-1, '~');
+        const char* userInput_cstr = userInput.c_str();
+        int exitVal = ESPNow.send_message(peripheral_mac, (uint8_t*)userInput_cstr, userInput.length());
+        Serial.println(exitVal);
+
+    }
+
+
 }
+
+/*
+    [<sensor>/system] set [pollRate/sensitivity] <uint>
+    demand <sensor>
+
+*/
