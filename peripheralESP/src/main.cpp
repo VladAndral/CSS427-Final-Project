@@ -4,6 +4,7 @@
 * you can do whatever you want with this stuff. If we meet some day, and you
 * think this stuff is worth it, you can buy me a beer in return
 */
+#include <utils.h>
 #include <Arduino.h>
 #include <esp_wifi.h>
 #ifdef ESP8266
@@ -13,6 +14,7 @@
 #endif
 #include "ESPNowW.h"
 
+#define TOK_ARR_SIZE 10
 /*
 Green flag sticky is peripheral
 */
@@ -37,17 +39,12 @@ long end_time;
 
 int64_t timeSinceBoot;
 
+const char* recv_data;
+bool receivedData = false;
+
 #define PIR_DATA_ID 1
 #define PHOTO_DATA_ID 2
 #define DEVICE_NETWORK_DATA_ID 3
-
-
-
-// See controller for setting custom mac address
-uint8_t my_mac[] = {0x22, 0x22, 0x22, 0x22, 0x22, 0x22};
-
-// Must be controller's actual operating mac address
-uint8_t controller_mac[] = {0xA0, 0xB7, 0x65, 0x1A, 0x7C, 0x30};
 
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
@@ -55,24 +52,31 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
     snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
     mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
     mac_addr[5]);
-    Serial.print("Last Packet Recv from: ");
-    Serial.println(macStr);
-    Serial.print("Last Packet Recv Data: ");
-    // if it could be a string, print as one
-    if (data[data_len - 1] == 0)
-    Serial.printf("%s\n", data);
-    // additionally print as hex
-    for (int i = 0; i < data_len; i++)
-    {
-        Serial.printf("(hex) %x", data[i]);
-    }
-    Serial.println("");
+
+    recv_data = (const char*)data;
+    receivedData = true;
+    // Serial.print("Last Packet Recv from: ");
+    // Serial.println(macStr);
+    // Serial.print("Last Packet Recv Data: ");
+    // // if it could be a string, print as one
+    // if (data[data_len - 1] == '~') {
+    //     Serial.printf("%s\n", data);
+    //     // for (int i = 0; i < data_len-1; i++) {
+    //     //     Serial.printf("%c", data[i]);
+    //     // }
+    // }
+    // // additionally print as hex
+    // for (int i = 0; i < data_len; i++)
+    // {
+    //     Serial.printf("(hex) %x", data[i]);
+    // }
+    // Serial.println("");
     
-    // Just duplicating what was received and sending it back to controller
-    // Must cast because compiler will not let you copy const data
-    uint8_t *senderMac_copy = (uint8_t *)mac_addr;
-    uint8_t *data_copy = (uint8_t *)data;
-    ESPNow.send_message(senderMac_copy, data_copy, data_len);
+    // // Just duplicating what was received and sending it back to controller
+    // // Must cast because compiler will not let you copy const data
+    // uint8_t *senderMac_copy = (uint8_t *)mac_addr;
+    // uint8_t *data_copy = (uint8_t *)data;
+    // ESPNow.send_message(senderMac_copy, data_copy, data_len);
 }
 
 // Function that runs if I send something
@@ -126,7 +130,7 @@ void sendMessage(int sensorTypeID){
             Serial.println("Can't send message because idk what this sensor is...");
     }
 
-    ESPNow.send_message(controller_mac, (uint8_t*)output_chars, strlen(output_chars));
+    ESPNow.send_message(central_mac, (uint8_t*)output_chars, strlen(output_chars));
 }
 
 void setup() {
@@ -138,11 +142,11 @@ void setup() {
     WiFi.mode(WIFI_MODE_STA);
     #endif
     WiFi.disconnect();
-    esp_wifi_set_channel(12, WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_channel(PROJ_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
     ESPNow.init();
     // Must add peer to send data back to it
-    ESPNow.set_mac(my_mac);
-    ESPNow.add_peer(controller_mac);
+    ESPNow.set_mac(peripheral_mac);
+    ESPNow.add_peer(central_mac);
     // Register callback functions
     ESPNow.reg_send_cb(onDataSent);
     ESPNow.reg_recv_cb(onRecv);
@@ -153,7 +157,7 @@ void setup() {
     
     String timeLoggingMsg = "Times shown are relative to system bootup~";
     const char * logMsgConvert = timeLoggingMsg.c_str();
-    ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
+    ESPNow.send_message(central_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
 }
 
 void calibratePhoto(){
@@ -220,4 +224,20 @@ void loop() {
         Serial.print("ESP32: I received your message: ");
         Serial.println(data + "~");
     }
+
+
+
+    /*
+        For testing receiving data
+        Do not delete
+    */
+    // if (receivedData) {
+    //     receivedData = false;
+    //     String recv_string = String(recv_data);
+    //     recv_string.remove(recv_string.length()-1);
+    //     Serial.println(recv_string);
+    //     String tokenArray[TOK_ARR_SIZE] = {""};
+    //     tokenize(recv_string, tokenArray, TOK_ARR_SIZE);
+    //     for (String token : tokenArray) if (!token.isEmpty()) Serial.println(token);
+    // }
 }
