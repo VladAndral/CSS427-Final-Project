@@ -13,6 +13,12 @@
 #endif
 #include "ESPNowW.h"
 
+#include <iostream>
+#include <string>
+#include <cstring>
+
+
+using namespace std;
 /*
 Green flag sticky is peripheral
 */
@@ -28,8 +34,8 @@ bool prevDetection = false;
 
 long noiseFloor = 0;
 int noiseLimit = 5;
-int pollFreq = 5;
-int pollTime = 250;
+int pollFreqPhoto = 5;
+int pollTimePhoto = 250;
 int photoData;
 
 long start_time;
@@ -51,13 +57,13 @@ uint8_t controller_mac[] = {0xA0, 0xB7, 0x65, 0x1A, 0x7C, 0x30};
 
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
-    char macStr[18];
-    snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-    mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
-    mac_addr[5]);
-    Serial.print("Last Packet Recv from: ");
-    Serial.println(macStr);
-    Serial.print("Last Packet Recv Data: ");
+    // char macStr[18];
+    // snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+    // mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
+    // mac_addr[5]);
+    // Serial.print("Last Packet Recv from: ");
+    // Serial.println(macStr);
+    // Serial.print("Last Packet Recv Data: ");
     // if it could be a string, print as one
     if (data[data_len - 1] == 0)
     Serial.printf("%s\n", data);
@@ -67,12 +73,15 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
         Serial.printf("(hex) %x", data[i]);
     }
     Serial.println("");
-    
+    string dataToParse = string((char*)data);
     // Just duplicating what was received and sending it back to controller
     // Must cast because compiler will not let you copy const data
-    uint8_t *senderMac_copy = (uint8_t *)mac_addr;
-    uint8_t *data_copy = (uint8_t *)data;
-    ESPNow.send_message(senderMac_copy, data_copy, data_len);
+    // uint8_t *senderMac_copy = (uint8_t *)mac_addr;
+    // uint8_t *data_copy = (uint8_t *)data;
+    // ESPNow.send_message(senderMac_copy, data_copy, data_len);
+	//[<sensor>/system] set [pollRate/sensitivity] <uint> 
+	//demand <sensor>
+
 }
 
 // Function that runs if I send something
@@ -169,29 +178,43 @@ void calibratePhoto(){
 }
 
 void readPhoto(){
-    int largestReading = analogRead(PHOTO_PIN);
-    int curReading = 0;
-    
-    for (int i = 0; i < pollFreq; i++) {
-        start_time = end_time = millis();
-
-        while(end_time - start_time < pollTime/pollFreq) end_time = millis();
-
-        cli();
-        curReading = analogRead(PHOTO_PIN);
-        sei();
-        largestReading = (curReading > largestReading) ? curReading : largestReading;
-    }
+    //int largestReading = analogRead(PHOTO_PIN);
+    int data = 0;
+	cli();
+    data = digitalRead(PHOTO_PIN);
+	sei();
+	sendMessage(data);
 }
 
+void readPIR(){
+	int data;
+	cli();
+	data = analogRead(PIR_PIN);
+	sei();
+	sendMessage(data);
+}
+volatile int sensorPeriod;
+//have a integer holding the ammount of times per second, if its been 1 second divided on 
 void loop() {
     // cli();
+	
     // Serial.println("in critical section");
     bool PIRDetectVar = movementDetected;
     bool photoVar = speechDetected;
     bool deviceVar = deviceDetected;
     // sei();
 
+	int prev_time_PIR;
+	int cur_time_PIR;
+	
+	//I want this main loop to run, I want ot check the value of sensor period
+	//, and if the current time is greater than the last polled time - sensor period
+
+	//if(end_time - start_time < pollTimePhoto/pollFreqPhoto) end_time = millis();
+
+	//readPhoto();
+	//largestReading = (curReading > largestReading) ? curReading : largestReading;
+    
     if (PIRDetectVar) {
         Serial.println("Movement detected, sending message to controller");
         sendMessage(PIR_DATA_ID);
