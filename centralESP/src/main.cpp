@@ -58,6 +58,9 @@ void setup() {
     ESPNow.reg_send_cb(onDataSent);
     // Register callback functions
     ESPNow.reg_recv_cb(onRecv);
+
+    // During testing, buffer would send garbage on first message; flush it
+    while (Serial.available()) Serial.read();
 }
 
 void loop() {
