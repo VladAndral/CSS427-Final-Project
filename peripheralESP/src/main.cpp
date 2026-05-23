@@ -32,6 +32,12 @@ Green flag sticky is peripheral
 volatile bool movementDetected = false;
 volatile bool speechDetected = false;
 volatile bool deviceDetected = false;
+
+
+volatile int sensorPeriodPIR;
+volatile int sensorPeriodPHOTO;
+volatile int sensorPeriodRF;
+
 bool prevDetection = false;
 
 long noiseFloor = 0;
@@ -43,6 +49,8 @@ int photoData;
 long start_time;
 long end_time;
 
+
+
 int64_t timeSinceBoot;
 
 const char* recv_data;
@@ -50,7 +58,7 @@ bool receivedData = false;
 
 #define PIR_DATA_ID 1
 #define PHOTO_DATA_ID 2
-#define DEVICE_NETWORK_DATA_ID 3
+#define RF_DATA_ID 3
 
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
@@ -187,7 +195,7 @@ void readPhoto(){
 	cli();
     data = digitalRead(PHOTO_PIN);
 	sei();
-	sendMessage(data);
+	//sendMessage(data);
 }
 
 void readPIR(){
@@ -195,9 +203,8 @@ void readPIR(){
 	cli();
 	data = analogRead(PIR_PIN);
 	sei();
-	sendMessage(data);
+	//sendMessage(data);
 }
-volatile int sensorPeriod;
 //have a integer holding the ammount of times per second, if its been 1 second divided on 
 void loop() {
     // cli();
@@ -209,11 +216,29 @@ void loop() {
     // sei();
 
 	int prev_time_PIR;
-	int cur_time_PIR;
+	int cur_time;
+    int prev_time_PHOTO;
+    int prev_time_RF;
 	
+    cur_time = millis();
+    if(cur_time - prev_time_PIR >= sensorPeriodPIR){
+        readPIR();
+        sendMessage(PIR_DATA_ID);
+        prev_time_PIR = cur_time;
+    }
+    if(cur_time - prev_time_PHOTO >= sensorPeriodPHOTO){
+        readPhoto();
+        sendMessage(PHOTO_DATA_ID);
+        prev_time_PHOTO = cur_time;
+    }
+    if(cur_time - prev_time_RF >= sensorPeriodRF){
+        readPhoto();
+        sendMessage(RF_DATA_ID);
+        prev_time_RF = cur_time;
+    }
 	//I want this main loop to run, I want ot check the value of sensor period
 	//, and if the current time is greater than the last polled time - sensor period
-
+    //if()
 	//if(end_time - start_time < pollTimePhoto/pollFreqPhoto) end_time = millis();
 
 	//readPhoto();
@@ -254,13 +279,45 @@ void loop() {
         For testing receiving data
         Do not delete
     */
-    // if (receivedData) {
-    //     receivedData = false;
-    //     String recv_string = String(recv_data);
-    //     recv_string.remove(recv_string.length()-1);
-    //     Serial.println(recv_string);
-    //     String tokenArray[TOK_ARR_SIZE] = {""};
-    //     tokenize(recv_string, tokenArray, TOK_ARR_SIZE);
-    //     for (String token : tokenArray) if (!token.isEmpty()) Serial.println(token);
-    // }
+    if (receivedData) {
+        receivedData = false;
+        String recv_string = String(recv_data);
+        recv_string.remove(recv_string.length()-1);
+        Serial.println(recv_string);
+        String tokenArray[TOK_ARR_SIZE] = {""};
+        tokenize(recv_string, tokenArray, TOK_ARR_SIZE);
+        for (String token : tokenArray) if (!token.isEmpty()) Serial.println(token);
+        checkData(tokenArray);
+    //[<sensor>/system] <Type of sensor> set [pollRate/sensitivity] <uint> 
+	//demand <sensor>
+    //PIR, PHOTO, RF - [<sensor>/system]
+    //any number [pollRate/sensitivity]
+    }
+}
+
+void checkData(String arr[]){
+    if(arr[0] == "demand"){
+        if(arr[1] == "PIR"){
+            readPIR();
+            sendMessage(PIR_DATA_ID);
+        }
+        if(arr[1] == "PHOTO"){
+            readPhoto();
+            sendMessage(PHOTO_DATA_ID);
+        }
+        if(arr[1] == "RF"){
+            //readRF();
+        }
+    }
+    if(arr[0] == "sensor"){
+        if(arr[1] == "PIR"){
+            sensorPeriodPIR = 1.0/arr[4].toInt();
+        }
+        if(arr[1] == "PHOTO"){
+            sensorPeriodPHOTO = 1.0/arr[4].toInt();
+        }
+        if(arr[1] == "RF"){
+            sensorPeriodRF = 1.0/arr[4].toInt();
+        }
+    }
 }
