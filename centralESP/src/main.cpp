@@ -18,17 +18,39 @@
             Red flag sticky is central
 */
 
+Ctrlr_Msg msg_to_peri;
+Peri_Msg msg_from_peri;
+
+Target target;
+Action action;
+Attr_Name attr_name;
+Attr_Val attr_val;
+
+void dummyFunctions(String dum1[TOK_ARR_SIZE], int &dum2)
+{
+    Serial.println("You've hit a dummy function...");
+}
+/*
+    Array of pointers to functions that will build a message to be sent to the
+    peripheral. Message will not be sent if any inputs are invalid.
+*/
+void (*buildMsg_funcArr[5])(String tokenArray[TOK_ARR_SIZE], int &arrPos) = {dummyFunctions};
+
 // Callback function
-void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("^ Last Packet Send Status:\t");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+    Serial.print("^ Last Packet Send Status:\t");
+    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
+void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+{
     // if it could be a string, print as one
-    if (data[data_len - 1] == '~') {
+    if (data[data_len - 1] == '~')
+    {
         // Serial.printf("%s\n", data);
-        for (int i = 0; i < data_len-1; i++) {
+        for (int i = 0; i < data_len - 1; i++)
+        {
             Serial.printf("%c", data[i]);
         }
         Serial.println("");
@@ -39,9 +61,273 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
     Serial.println("");
 }
 
-void setup() {
+/*
+    Set every field of message to invalid
+*/
+void resetMsg()
+{
+    msg_to_peri.action = ACTION_INVALID;
+    msg_to_peri.attr_name = ATTR_NAME_INVALID;
+    msg_to_peri.attr_val = ATTR_VAL_INVALID;
+    msg_to_peri.target = TARGET_INVALID;
+    msg_to_peri.val1 = VALUE_INVALID;
+    msg_to_peri.val2 = VALUE_INVALID;
+    msg_to_peri.val3 = VALUE_INVALID;
+}
+
+/*
+    Clear serial entirely
+*/
+void flushSerial()
+{
+    while (Serial.available())
+        Serial.read();
+}
+
+/// @brief Returns corresponding Target enum for user's input  
+/// @param parameter Token to interpret as a Target
+/// @return Target enum object. May be _INVALID
+Target getTarget(String parameter)
+{
+    if (parameter.isEmpty())
+        return TARGET_INVALID;
+    
+    for (int i = 0; i < targetNames->length(); i++)
+    {
+        if (parameter == targetNames[i])
+            return (Target)(i+INVALID_OFFSET);
+    }
+
+    return TARGET_INVALID;
+}
+
+/// @brief Returns corresponding Action enum for user's input  
+/// @param parameter Token to interpret as a Action
+/// @return Target enum object. May be _INVALID
+Action getAction(String parameter, Target target)
+{
+    if (parameter.isEmpty() || (parameter == "demand" && target >= TARGET_SNS_INDEX_LIMIT))
+        return ACTION_INVALID;
+
+    for (int i = 0; i < actionNames->length(); i++)
+    {
+        if (parameter == actionNames[i])
+            return (Action)(i + INVALID_OFFSET);
+    }
+
+    return ACTION_INVALID;
+}
+
+/// @brief Returns corresponding Attribute Name enum for user's input  
+/// @param parameter Token to interpret as a Attribute Name
+/// @return Target enum object. May be _INVALID
+Attr_Name getAttrName(String parameter, Target target)
+{
+    if (parameter.isEmpty())
+        return ATTR_NAME_INVALID;
+
+    if (target <= TARGET_SNS_INDEX_LIMIT)
+    {
+        for (int i = 0; i < AttributeNames_sensor->length(); i++)
+        {
+            if (parameter == AttributeNames_sensor[i])
+            return (Attr_Name)(i + INVALID_OFFSET + ATTR_NAME_OFFSET_SNS);
+        }
+    }
+    else if (target >= TARGET_SNS_INDEX_LIMIT)
+    {
+        for (int i = 0; i < AttributeNames_system->length(); i++)
+        {
+            if (parameter == AttributeNames_system[i])
+                return (Attr_Name)(i + INVALID_OFFSET + ATTR_NAME_OFFSET_SYS);
+        }
+    }
+
+    return ATTR_NAME_INVALID;
+}
+
+/// @brief Returns corresponding Attribute Value enum for user's input  
+/// @param parameter Token to interpret as a Attribute Value
+/// @return Target enum object. May be _INVALID
+Attr_Val getAttrVal(String parameter, Target target)
+{
+    if (parameter.isEmpty())
+        return ATTR_VAL_INVALID;
+
+    switch (target)
+    {
+    case TARGET_SYSTEM:
+        for (int i = 0; i < AttributeValues_system->length(); i++)
+        {
+            if (parameter == AttributeValues_system[i])
+                return (Attr_Val)(i + INVALID_OFFSET + ATTR_VAL_OFFSET_SYS);
+        }
+        break;
+    default:
+        break;
+    }
+
+    return ATTR_VAL_INVALID;
+}
+
+
+/// @brief Send the global message to the peripheral
+void sendMsgStructToPeri()
+{
+    ESPNow.send_message(peripheral_mac, (uint8_t *)&msg_to_peri, sizeof(msg_to_peri));
+}
+
+/// @brief Fills the message object's fields with user's inputs, interpreting as a sensor request. If an input is not valid, message is not sent
+/// @param tokenArray Array of all tokens
+/// @param arrPos Reference to position tracking variable
+void buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
+{
+    /*
+        PARSING: Action
+    */
+    action = getAction(tokenArray[arrPos++], target);
+
+    if (action == ACTION_INVALID)
+    {
+        Serial.println("Invalid action.");
+        resetMsg();
+        return;
+    }
+
+    msg_to_peri.action = action;
+
+    if (action == ACTION_DEMAND)
+    {
+        Serial.println("Sending message...");
+        sendMsgStructToPeri();
+        resetMsg();
+        return;
+    }
+
+    /*
+        PARSING: Attribute name
+    */
+    attr_name = getAttrName(tokenArray[arrPos++], target);
+
+    if (attr_name == ATTR_NAME_INVALID)
+    {
+        Serial.println("Invalid attribute name.");
+        resetMsg();
+        return;
+    }
+
+    msg_to_peri.attr_name = attr_name;
+
+    if (action != ACTION_GET)
+    {
+        /*
+            PARSING: Attribute value
+        */
+        int value = tokenArray[arrPos++].toInt();
+
+        if (!value)
+        {
+            Serial.println("Invalid integer value.");
+            resetMsg();
+            return;
+        }
+
+        msg_to_peri.val1 = value;
+
+        if (action == ACTION_SCHEDULE)
+        {
+            int userTime = tokenArray[arrPos++].toInt();
+
+            if (!userTime)
+            {
+                Serial.println("invalid schedule time");
+                resetMsg();
+                return;
+            }
+
+            msg_to_peri.val1 = userTime;
+        }
+    }
+
+    Serial.println("Sending message...");
+    sendMsgStructToPeri();
+    resetMsg();
+}
+
+/// @brief Fills the message object's fields with user's inputs, interpreting as a system request. If an input is not valid, message is not sent
+/// @param tokenArray Array of all tokens
+/// @param arrPos Reference to position tracking variable
+void buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
+{
+    /*
+        PARSING: Action
+    */
+    action = getAction(tokenArray[arrPos++], target);
+
+    if (action == ACTION_INVALID)
+    {
+        Serial.println("Invalid action.");
+        resetMsg();
+        return;
+    }
+
+    msg_to_peri.action = action;
+
+    /*
+        PARSING: Attribute name
+    */
+    attr_name = getAttrName(tokenArray[arrPos++], target);
+
+    if (attr_name == ATTR_NAME_INVALID)
+    {
+        Serial.println("Invalid attribute name.");
+        resetMsg();
+        return;
+    }
+
+    msg_to_peri.attr_name = attr_name;
+
+    if (action != ACTION_GET)
+    {
+        /*
+            PARSING: Attribute value
+        */
+        Attr_Val attr_val = getAttrVal(tokenArray[arrPos++], target);
+
+        if (attr_val == ATTR_VAL_INVALID)
+        {
+            Serial.println("Invalid attribute value.");
+            resetMsg();
+            return;
+        }
+
+        msg_to_peri.attr_val = attr_val;
+
+        if (action == ACTION_SCHEDULE)
+        {
+            int userTime = tokenArray[arrPos++].toInt();
+
+            if (!userTime)
+            {
+                Serial.println("invalid schedule time");
+                resetMsg();
+                return;
+            }
+
+            msg_to_peri.val1 = userTime;
+        }
+    }
+
+    Serial.println("Sending message...");
+    sendMsgStructToPeri();
+    resetMsg();
+}
+
+void setup()
+{
     Serial.begin(9600);
     Serial.println("ESPNow sender Demo");
+
 #ifdef ESP8266
     WiFi.mode(WIFI_STA); // MUST NOT BE WIFI_MODE_NULL
 #elif ESP32
@@ -52,7 +338,7 @@ void setup() {
     ESPNow.init();
 
     // If you created a custom mac address, must use this function
-    ESPNow.set_mac(central_mac);
+    // ESPNow.set_mac(controller_mac);
     ESPNow.add_peer(peripheral_mac);
     // Must add peer to send data back to it
     ESPNow.reg_send_cb(onDataSent);
@@ -60,39 +346,64 @@ void setup() {
     ESPNow.reg_recv_cb(onRecv);
 
     // During testing, buffer would send garbage on first message; flush it
-    while (Serial.available()) Serial.read();
+    flushSerial();
+    resetMsg();
+
+    // Test
+    sendMsgStructToPeri();
+
+    for (int i = INVALID_OFFSET; i <= TARGET_SNS_INDEX_LIMIT; i++)
+    {
+        buildMsg_funcArr[i] = buildMsg_sensor;
+    }
+    buildMsg_funcArr[TARGET_SYSTEM] = buildMsg_system;
+
+
 }
 
-void loop() {
+void loop()
+{
     // static uint8_t a = 0;
     // delay(1000);
     // ESPNow.send_message(peripheral_mac, &a, 1);
     // // ++ operation increments the var after being used
     // Serial.println(a++);
 
-    if (Serial.available()) {
+    // If there was user input
+    if (Serial.available())
+    {
         Serial.print("Received user input: ");
         String userInput = Serial.readStringUntil('\n');
         Serial.println(userInput);
 
-        // String tokenArray[TOK_ARR_SIZE] = {""};
+        String tokenArray[TOK_ARR_SIZE] = {""};
+        tokenize(userInput, tokenArray, TOK_ARR_SIZE);
+        for (String str : tokenArray)
+        {
+            Serial.println(str);
+            Serial.println(":");
+        }
 
-        // tokenize(userInput, tokenArray);
+        /*
+            PARSING: Target
+        */
+        int arrPos = 0;
+        Target target = getTarget(tokenArray[arrPos++]);
+        Action action;
+        Attr_Name attr_name;
+        Attr_Val attr_val;
 
-        // for (String token : tokenArray) Serial.println(token);
-        // userInput += '~';
-        userInput.setCharAt(userInput.length()-1, '~');
-        const char* userInput_cstr = userInput.c_str();
-        int exitVal = ESPNow.send_message(peripheral_mac, (uint8_t*)userInput_cstr, userInput.length());
-        Serial.println(exitVal);
+        if (target == TARGET_INVALID)
+        {
+            Serial.println("Invalid target.");
+            resetMsg();
+        }
+        else
+        {
+            msg_to_peri.target = target;
 
+            // Call the function that corresponds to the target
+            buildMsg_funcArr[target](tokenArray, arrPos);
+        }
     }
-
-
 }
-
-/*
-    [<sensor>/system] set [pollRate/sensitivity] <uint>
-    demand <sensor>
-
-*/
