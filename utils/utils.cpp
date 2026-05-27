@@ -7,7 +7,6 @@ String targetNames[] = {
     "pir",
     "photo",
     "rf",
-    "sensors",
     "system"
 };
 

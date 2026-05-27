@@ -25,27 +25,26 @@ enum CommandType : int
 
     <sensor>      [set/get/schedule]    [pollRate/sensitivity]       <uint> (<uint> <uint>)
     <sensor>            demand
-    system        [set/get/schedule]            mode              <Mode> (<uint> <uint> <uint>)
+    system        [set/get/schedule]  [pollRate/sensitivity/Mode] <Mode> (<uint> <uint> <uint>)
+    system              demand
 */
 
+#define NUM_OF_TARGETS TARGET_SENTINEL-1
+#define NUM_OF_SENSORS 3
 /*
-    To abstract returning what enum type a token is
+To abstract returning what enum type a token is
 
-    Count is for function pointer array
+Count is for function pointer array
 */
 #define INVALID_OFFSET 1
-// Where the sensors start and stop
-#define TARGET_SNS_INDEX_BEGIN 1
-#define TARGET_SNS_INDEX_LIMIT SENSOR_SENSORS
-#define TARGET_SYS_INDEX_BEGIN TARGET_SNS_INDEX_LIMIT+1
 enum Target : int
 {
     TARGET_INVALID = 0,
-    SENSOR_PIR = TARGET_SNS_INDEX_BEGIN,
-    SENSOR_PHOTO = TARGET_SNS_INDEX_BEGIN+1,
-    SENSOR_RF = TARGET_SNS_INDEX_BEGIN+2,
-    SENSOR_SENSORS = TARGET_SNS_INDEX_BEGIN+3,
-    TARGET_SYSTEM = TARGET_SYS_INDEX_BEGIN
+    SENSOR_PIR = 1,
+    SENSOR_PHOTO = 2,
+    SENSOR_RF = 3,
+    TARGET_SYSTEM = 4,
+    TARGET_SENTINEL = 5
 };
 
 enum Action : int
@@ -99,7 +98,8 @@ extern uint8_t peripheral_mac[];
     Packed struct ensures consistent byte alignment across devices
 */
 #define VALUE_INVALID -9999
-typedef struct __attribute__((packed))
+// typedef struct __attribute__((packed))
+struct __attribute__((packed)) Ctrlr_Msg
 {
     Target target;
     Action action;
@@ -108,14 +108,16 @@ typedef struct __attribute__((packed))
     int val1; // Can hold pollRate, sensitivity, etc.
     int val2;
     int val3;
-} Ctrlr_Msg;
+};
 
 /*
     A message from the peripheral will contain all data, even if only data
     from one sensor is set
 */
-typedef struct __attribute__((packed))
+// Don't need to do typedef in C++ b/c it's done automatically
+struct __attribute__((packed)) Peri_Msg
 {
+    Ctrlr_Msg ctrlr_msg;
     bool recv_msg_error;
     bool PIR_detected;
     int PIR_numOfDetct_inPeriod;
@@ -125,7 +127,7 @@ typedef struct __attribute__((packed))
     bool RF_detected;
     int RF_numOfDetct_inPeriod;
     int RF_noiseLevel;
-} Peri_Msg;
+};
 
 extern String targetNames[];
 extern String actionNames[];

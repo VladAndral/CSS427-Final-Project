@@ -26,15 +26,16 @@ Action action;
 Attr_Name attr_name;
 Attr_Val attr_val;
 
-void dummyFunctions(String dum1[TOK_ARR_SIZE], int &dum2)
+bool dummyFunctions(String dum1[TOK_ARR_SIZE], int &dum2)
 {
     Serial.println("You've hit a dummy function...");
+    return false;
 }
 /*
     Array of pointers to functions that will build a message to be sent to the
     peripheral. Message will not be sent if any inputs are invalid.
 */
-void (*buildMsg_funcArr[5])(String tokenArray[TOK_ARR_SIZE], int &arrPos) = {dummyFunctions};
+bool (*buildMsg_funcArr[5])(String tokenArray[TOK_ARR_SIZE], int &arrPos) = {dummyFunctions};
 
 // Callback function
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
@@ -177,10 +178,12 @@ void sendMsgStructToPeri()
     ESPNow.send_message(peripheral_mac, (uint8_t *)&msg_to_peri, sizeof(msg_to_peri));
 }
 
-/// @brief Fills the message object's fields with user's inputs, interpreting as a sensor request. If an input is not valid, message is not sent
+/// @brief Fills the message object's fields with user's inputs, interpreting as a sensor request.
+/// If an input is not valid, message should not be sent. This method does not send the message
 /// @param tokenArray Array of all tokens
 /// @param arrPos Reference to position tracking variable
-void buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
+/// @return False if any part of the message is invalid (should not be sent)
+bool buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
 {
     /*
         PARSING: Action
@@ -190,18 +193,14 @@ void buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
     if (action == ACTION_INVALID)
     {
         Serial.println("Invalid action.");
-        resetMsg();
-        return;
+        return false;
     }
 
     msg_to_peri.action = action;
 
     if (action == ACTION_DEMAND)
     {
-        Serial.println("Sending message...");
-        sendMsgStructToPeri();
-        resetMsg();
-        return;
+        return true;
     }
 
     /*
@@ -212,8 +211,7 @@ void buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
     if (attr_name == ATTR_NAME_INVALID)
     {
         Serial.println("Invalid attribute name.");
-        resetMsg();
-        return;
+        return false;
     }
 
     msg_to_peri.attr_name = attr_name;
@@ -228,8 +226,7 @@ void buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
         if (!value)
         {
             Serial.println("Invalid integer value.");
-            resetMsg();
-            return;
+            return false;
         }
 
         msg_to_peri.val1 = value;
@@ -241,23 +238,22 @@ void buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
             if (!userTime)
             {
                 Serial.println("invalid schedule time");
-                resetMsg();
-                return;
+                return false;
             }
 
             msg_to_peri.val1 = userTime;
         }
     }
 
-    Serial.println("Sending message...");
-    sendMsgStructToPeri();
-    resetMsg();
+    return true;
 }
 
-/// @brief Fills the message object's fields with user's inputs, interpreting as a system request. If an input is not valid, message is not sent
+/// @brief Fills the message object's fields with user's inputs, interpreting as a system request.
+/// If an input is not valid, message should not be sent. This method does not send the message
 /// @param tokenArray Array of all tokens
 /// @param arrPos Reference to position tracking variable
-void buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
+/// @return False if any part of the message is invalid (should not be sent)
+bool buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
 {
     /*
         PARSING: Action
@@ -267,8 +263,7 @@ void buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
     if (action == ACTION_INVALID)
     {
         Serial.println("Invalid action.");
-        resetMsg();
-        return;
+        return false;
     }
 
     msg_to_peri.action = action;
@@ -281,8 +276,7 @@ void buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
     if (attr_name == ATTR_NAME_INVALID)
     {
         Serial.println("Invalid attribute name.");
-        resetMsg();
-        return;
+        return false;
     }
 
     msg_to_peri.attr_name = attr_name;
@@ -297,8 +291,7 @@ void buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
         if (attr_val == ATTR_VAL_INVALID)
         {
             Serial.println("Invalid attribute value.");
-            resetMsg();
-            return;
+            return false;
         }
 
         msg_to_peri.attr_val = attr_val;
@@ -310,18 +303,23 @@ void buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
             if (!userTime)
             {
                 Serial.println("invalid schedule time");
-                resetMsg();
-                return;
+                return false;
             }
 
             msg_to_peri.val1 = userTime;
         }
     }
 
-    Serial.println("Sending message...");
-    sendMsgStructToPeri();
-    resetMsg();
+    return true;
 }
+
+
+
+
+
+/****************************
+    SETUP AND MAIN LOOP
+*****************************/
 
 void setup()
 {
@@ -384,6 +382,7 @@ void loop()
             Serial.println(":");
         }
 
+        resetMsg();
         /*
             PARSING: Target
         */
@@ -396,14 +395,21 @@ void loop()
         if (target == TARGET_INVALID)
         {
             Serial.println("Invalid target.");
-            resetMsg();
         }
         else
         {
             msg_to_peri.target = target;
 
             // Call the function that corresponds to the target
-            buildMsg_funcArr[target](tokenArray, arrPos);
+            bool validMessage = buildMsg_funcArr[target](tokenArray, arrPos);
+            
+            if (validMessage)
+            {
+                Serial.println("Sending message...");
+                sendMsgStructToPeri();
+            }
+
+            resetMsg();
         }
     }
 }

@@ -6,6 +6,7 @@
  */
 #include <utils.h>
 #include <Arduino.h>
+
 #include <esp_wifi.h>
 #ifdef ESP8266
 #include <ESP8266WiFi.h>
@@ -14,18 +15,14 @@
 #endif
 #include "ESPNowW.h"
 
-#include <iostream>
-#include <string>
-#include <cstring>
-
 // using namespace std;
 /*
 Green flag sticky is peripheral
 */
 
-#define PIR_PIN 13
-#define PHOTO_PIN 14
-#define RF_PIN 19
+#define PIR_BOARD_PIN 13
+#define PHOTO_BOARD_PIN 34
+#define RF_BOARD_PIN 19
 
 #define PIR_DATA_ID 1
 #define PHOTO_DATA_ID 2
@@ -52,59 +49,68 @@ long end_time;
 
 int64_t timeSinceBoot;
 
+uint32_t curTime;
+
 const char *recv_data;
 bool receivedData = false;
 
 Ctrlr_Msg msg_from_ctrlr;
 Peri_Msg msg_to_ctrlr;
 
+struct PIR_struct
+{
+    bool enabled;
+    uint32_t periodLen_ms;
+    int reading;
+    uint32_t prevTime;
+    int data;
+};
+
+PIR_struct pir;
+
+struct PHOTO_struct
+{
+    bool enabled;
+    uint32_t periodLen_ms;
+    int reading;
+    int noiseFloor;
+    int trigMin;
+    uint32_t prevTime;
+    uint16_t data;
+};
+
+PHOTO_struct photo;
+
+struct RF_struct
+{
+    bool enabled;
+    int reading;
+    int noiseFloor;
+    int trigMin;
+    uint32_t prevTime;
+    float data;
+};
+
+RF_struct rf;
+
+
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
-// Should not print b/c Rpi is connected to serial thru UART
-void dummyFunc() {  }
-/// @brief Array of different functions that will read the message sent from the controller. These functions should execute valid commands
-void (*readMsg_funcArr[5])() = {dummyFunc};
-
+void emptyRead() {}
 /// @brief Functions that read, and only read, their corresponding sensors
-void (*readSensor[TARGET_SNS_INDEX_LIMIT-1])(void) = {dummyFunc};
+void (*readSensor[NUM_OF_TARGETS])() = {emptyRead};
+
+bool emptyIA() { return false; }
+/// @brief Each target should have a function that interprets an action.
+/// Returns false if any part of the message is not valid and/or the action was not executed.
+/// Returns true if the command is valid; these functions will operate on sensors if the command is valid
+bool (*executeAction[NUM_OF_TARGETS + INVALID_OFFSET])() = {emptyIA};
 
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
-    // char macStr[18];
-    // snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-    // mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
-    // mac_addr[5]);
-
-    // recv_data = (const char*)data;
     receivedData = true;
-    // Serial.print("Last Packet Recv from: ");
-    // // Serial.println(macStr);
-    // // Serial.print("Last Packet Recv Data: ");
-    // // if it could be a string, print as one
-    // if (data[data_len - 1] == '~') {
-    //     Serial.printf("%s\n", data);
-    //     // for (int i = 0; i < data_len-1; i++) {
-    //     //     Serial.printf("%c", data[i]);
-    //     // }
-    // }
-    // // additionally print as hex
-    // for (int i = 0; i < data_len; i++)
-    // {
-    //     Serial.printf("(hex) %x", data[i]);
-    // }
-    // Serial.println("");
-    // string dataToParse = string((char*)data);
-    // // Just duplicating what was received and sending it back to controller
-    // // Must cast because compiler will not let you copy const data
-    // // uint8_t *senderMac_copy = (uint8_t *)mac_addr;
-    // // uint8_t *data_copy = (uint8_t *)data;
-    // // ESPNow.send_message(senderMac_copy, data_copy, data_len);
-    //[<sensor>/system] set [pollRate/sensitivity] <uint>
-    // demand <sensor>
-
-    // Directly copying the object sent to our local object
     memcpy(&msg_from_ctrlr, data, sizeof(msg_from_ctrlr));
 }
 
@@ -115,57 +121,62 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void motionDetectedISR()
+void pir_ISR()
 {
-    movementDetected = digitalRead(PIR_PIN);
+    pir.data = digitalRead(PIR_BOARD_PIN);
 }
 
-void deviceDetectedISR()
+void photo_ISR()
+{
+
+}
+
+void rf_ISR()
 {
     // If HIGH, traffic detected
     // If LOW, no traffic detected
 }
 
-void sendMessage(int sensorTypeID)
-{
-    unsigned long timeSinceBoot = millis();
-    int seconds = (timeSinceBoot / 1000) % 60;
-    int minutes = ((timeSinceBoot / 1000) / 60) % 60;
-    int hours = ((timeSinceBoot / 1000) / 60) / 60;
+// void sendMessage(int sensorTypeID)
+// {
+//     unsigned long timeSinceBoot = millis();
+//     int seconds = (timeSinceBoot / 1000) % 60;
+//     int minutes = ((timeSinceBoot / 1000) / 60) % 60;
+//     int hours = ((timeSinceBoot / 1000) / 60) / 60;
 
-    std::string timeSinceBoot_str = "";
-    timeSinceBoot_str += std::to_string(hours);
-    timeSinceBoot_str += "hr ";
-    timeSinceBoot_str += std::to_string(minutes);
-    timeSinceBoot_str += "min ";
-    timeSinceBoot_str += std::to_string(seconds);
-    timeSinceBoot_str += "sec ";
+//     std::string timeSinceBoot_str = "";
+//     timeSinceBoot_str += std::to_string(hours);
+//     timeSinceBoot_str += "hr ";
+//     timeSinceBoot_str += std::to_string(minutes);
+//     timeSinceBoot_str += "min ";
+//     timeSinceBoot_str += std::to_string(seconds);
+//     timeSinceBoot_str += "sec ";
 
-    const char *timeSinceBoot_chars = timeSinceBoot_str.c_str();
+//     const char *timeSinceBoot_chars = timeSinceBoot_str.c_str();
 
-    String output_str = "";
-    const char *output_chars = output_str.c_str();
+//     String output_str = "";
+//     const char *output_chars = output_str.c_str();
 
-    switch (sensorTypeID)
-    {
-    case PIR_DATA_ID:
-        output_str += "PIR Sensor: Movement detected at ";
-        output_str += timeSinceBoot_chars;
-        output_str += "~";
+//     switch (sensorTypeID)
+//     {
+//     case PIR_DATA_ID:
+//         output_str += "PIR Sensor: Movement detected at ";
+//         output_str += timeSinceBoot_chars;
+//         output_str += "~";
 
-        output_chars = output_str.c_str();
+//         output_chars = output_str.c_str();
 
-        Serial.println("Sending PIR sensor info to controller");
-        // NOTE: strlen does NOT count the null terminator (ASCII 0)
-        // Serial.println("\r\n    \r\n");
-        // Serial.println(charSentOut);
-        break;
-    default:
-        Serial.println("Can't send message because idk what this sensor is...");
-    }
+//         Serial.println("Sending PIR sensor info to controller");
+//         // NOTE: strlen does NOT count the null terminator (ASCII 0)
+//         // Serial.println("\r\n    \r\n");
+//         // Serial.println(charSentOut);
+//         break;
+//     default:
+//         Serial.println("Can't send message because idk what this sensor is...");
+//     }
 
-    ESPNow.send_message(controller_mac, (uint8_t *)output_chars, strlen(output_chars));
-}
+//     ESPNow.send_message(controller_mac, (uint8_t *)output_chars, strlen(output_chars));
+// }
 
 void calibratePhoto()
 {
@@ -174,51 +185,121 @@ void calibratePhoto()
 
     while (end_time - start_time <= 2000)
     {
-        reading += analogRead(PHOTO_PIN);
+        reading += analogRead(PHOTO_BOARD_PIN);
         count++;
         end_time = millis();
     }
     long noiseFloor = reading / count;
 }
 
+// TODO:
+void calibrateRF()
+{
+
+}
+
+// TODO: Restructure read functions to only read; they shouldn't care about msg
 void readPhoto()
 {
-    // int largestReading = analogRead(PHOTO_PIN);
     int data = 0;
-    // How we enter critical sections
+    // How we enter critical sections. Do not use cli() or sei()
     portENTER_CRITICAL(&mux);
-    data = analogRead(PHOTO_PIN);
+    data = analogRead(PHOTO_BOARD_PIN);
     portEXIT_CRITICAL(&mux);
-    msg_to_ctrlr.Photo_detected = data > noiseLimit;
+    photo.data = data;
 }
 
 void readPIR()
 {
     int data;
     portENTER_CRITICAL(&mux);
-    data = digitalRead(PIR_PIN);
+    data = digitalRead(PIR_BOARD_PIN);
     portEXIT_CRITICAL(&mux);
-    msg_to_ctrlr.PIR_detected = data;
+    pir.data = data;
+}
+
+void readRF()
+{
+
 }
 
 void readAllSensors()
 {
     readPhoto();
     readPIR();
+    readRF();
 }
 
-
-void sendMsgStructToController()
+void sendMsgStructToController(Peri_Msg &msg_to_ctrlr)
 {
     ESPNow.send_message(controller_mac, (uint8_t *)&msg_to_ctrlr, sizeof(msg_to_ctrlr));
 }
 
-void demandSensorReading(Target sensor)
+// bool cmd_pir(Peri_Msg &msg_to_ctrlr)
+// {
+//     if (msg_from_ctrlr.action == ACTION_INVALID)
+//     {
+//         msg_to_ctrlr.recv_msg_error = true;
+//         return false;
+//     }
+
+//     if (msg_from_ctrlr.action == ACTION_DEMAND)
+//     {
+//         readPIR();
+//         return true;
+//     }
+
+//     if (msg_from_ctrlr.action == ACTION_SET)
+//     {
+//         if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+//         {
+//             msg_to_ctrlr.recv_msg_error = true;
+//             return false;
+//         }
+//     }
+// }
+
+void cmd_demand(Target target)
 {
-    readSensor[sensor];
-    sendMsgStructToController();
+    readSensor[target]();
 }
 
+/// @brief Create a new controller message struct (for receiving a message from the controller)
+/// @return `Ctrlr_Msg` struct with all fields set to their respective INVALID states
+Ctrlr_Msg new_msg_from_ctrlr()
+{
+    Ctrlr_Msg toReturn;
+    toReturn.action = ACTION_INVALID;
+    toReturn.attr_name = ATTR_NAME_INVALID;
+    toReturn.attr_val = ATTR_VAL_INVALID;
+    toReturn.target = TARGET_INVALID;
+    toReturn.val1 = VALUE_INVALID;
+    toReturn.val2 = VALUE_INVALID;
+    toReturn.val3 = VALUE_INVALID;
+
+    return toReturn;
+}
+
+Peri_Msg new_msg_to_ctrlr()
+{
+    Peri_Msg toReturn;
+    toReturn.ctrlr_msg = new_msg_from_ctrlr();
+    toReturn.Photo_detected = false;
+    toReturn.Photo_noiseLevel = VALUE_INVALID;
+    toReturn.Photo_numOfDetct_inPeriod = VALUE_INVALID;
+    toReturn.PIR_detected = false;
+    toReturn.PIR_numOfDetct_inPeriod = VALUE_INVALID;
+    toReturn.recv_msg_error = true;
+    toReturn.RF_detected = false;
+    toReturn.RF_noiseLevel = VALUE_INVALID;
+    toReturn.RF_numOfDetct_inPeriod = VALUE_INVALID;
+
+    return toReturn;
+}
+
+/****************************
+    SETUP AND MAIN LOOP
+*****************************/
 
 void setup()
 {
@@ -239,9 +320,11 @@ void setup()
     ESPNow.reg_send_cb(onDataSent);
     ESPNow.reg_recv_cb(onRecv);
     // PIR stuff
-    pinMode(PIR_PIN, INPUT_PULLDOWN);
-    attachInterrupt(digitalPinToInterrupt(PIR_PIN), motionDetectedISR, RISING);
-    attachInterrupt(digitalPinToInterrupt(RF_PIN), deviceDetectedISR, CHANGE);
+    pinMode(PIR_BOARD_PIN, INPUT_PULLDOWN);
+
+    attachInterrupt(digitalPinToInterrupt(PIR_BOARD_PIN), pir_ISR, RISING);
+    attachInterrupt(digitalPinToInterrupt(PHOTO_BOARD_PIN), photo_ISR, RISING);
+    attachInterrupt(digitalPinToInterrupt(RF_BOARD_PIN), rf_ISR, CHANGE);
 
     String timeLoggingMsg = "Times shown are relative to system bootup~";
     const char *logMsgConvert = timeLoggingMsg.c_str();
@@ -249,7 +332,10 @@ void setup()
 
     readSensor[SENSOR_PIR] = readPIR;
     readSensor[SENSOR_PHOTO] = readPhoto;
-    readSensor[SENSOR_SENSORS] = readAllSensors;
+    readSensor[SENSOR_RF] = readRF;
+    readSensor[TARGET_SYSTEM] = readAllSensors;
+
+    executeAction[ACTION_DEMAND] = cmd_demand;
 }
 
 // have a integer holding the ammount of times per second, if its been 1 second divided on
@@ -333,13 +419,28 @@ void loop()
     if (receivedData)
     {
         receivedData = false;
-
+        Peri_Msg msg_to_ctrlr = new_msg_to_ctrlr();
         if (msg_from_ctrlr.target == TARGET_INVALID)
         {
             msg_to_ctrlr.recv_msg_error = true;
-            sendMsgStructToController();
+            sendMsgStructToController(msg_to_ctrlr);
         }
 
-        readMsg_funcArr[msg_from_ctrlr.target]();
+        bool cmdExecuted = executeAction[msg_from_ctrlr.target](msg_to_ctrlr);
+
+        if (!cmdExecuted)
+        {
+            msg_to_ctrlr.recv_msg_error = true;
+            sendMsgStructToController(msg_to_ctrlr);
+        }
+        else
+        {
+            // TODO:
+        }
+    }
+
+    curTime = millis();
+    for (int i = 0; i < NUM_OF_TARGETS;)
+    {
     }
 }
