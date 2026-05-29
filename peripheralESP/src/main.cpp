@@ -98,7 +98,7 @@ RF_struct rf;
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
-bool emptyRead() {}
+bool emptyRead() { return false; }
 /// @brief Functions that read, and only read, their corresponding sensors
 bool (*readSensor[NUM_OF_TARGETS])() = {emptyRead};
 
@@ -210,7 +210,7 @@ bool readPhoto()
     data = analogRead(PHOTO_BOARD_PIN);
     portEXIT_CRITICAL(&mux);
     photo.data = data;
-    return data;
+    return (bool)data;
 }
 
 bool readPIR()
@@ -220,18 +220,17 @@ bool readPIR()
     data = digitalRead(PIR_BOARD_PIN);
     portEXIT_CRITICAL(&mux);
     pir.data = data;
+    return (bool)data;
 }
 
 bool readRF()
 {
-
+    return false;
 }
 
 bool readAllSensors()
 {
-    readPhoto();
-    readPIR();
-    readRF();
+    return readPhoto() && readPIR() && readRF();
 }
 
 void sendMsgStructToController(Peri_Msg &msg_to_ctrlr)
@@ -261,6 +260,7 @@ bool cmd_pir(Peri_Msg &msg_to_ctrlr)
             return false;
         }
     }
+    return false;
 }
 
 bool cmd_demand(Peri_Msg &msg_to_ctrlr)
@@ -419,9 +419,7 @@ void loop()
             msg_to_ctrlr.recv_msg_error = true;
             sendMsgStructToController(msg_to_ctrlr);
         } else
-        {
-
-            
+        {   
             bool cmdExecuted = executeAction[msg_from_ctrlr.target](msg_to_ctrlr);
             
             if (!cmdExecuted)
