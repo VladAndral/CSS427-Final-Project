@@ -418,18 +418,21 @@ void loop()
         {
             msg_to_ctrlr.recv_msg_error = true;
             sendMsgStructToController(msg_to_ctrlr);
-        }
-
-        bool cmdExecuted = executeAction[msg_from_ctrlr.target](msg_to_ctrlr);
-
-        if (!cmdExecuted)
+        } else
         {
-            msg_to_ctrlr.recv_msg_error = true;
-            sendMsgStructToController(msg_to_ctrlr);
-        }
-        else
-        {
-            // TODO:
+
+            
+            bool cmdExecuted = executeAction[msg_from_ctrlr.target](msg_to_ctrlr);
+            
+            if (!cmdExecuted)
+            {
+                msg_to_ctrlr.recv_msg_error = true;
+                sendMsgStructToController(msg_to_ctrlr);
+            }
+            else
+            {
+                // TODO:
+            }
         }
     }
 
