@@ -268,7 +268,18 @@ bool cmd_demand(Peri_Msg &msg_to_ctrlr)
     return readSensor[msg_from_ctrlr.target]();
 }
 
-bool cmd_set()
+bool cmd_set(Peri_Msg &msg_to_ctrlr)
+{
+    return false;
+
+}
+
+bool cmd_get(Peri_Msg &msg_to_ctrlr)
+{
+    return false;
+}
+
+bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
 {
     return false;
 }
@@ -329,7 +340,11 @@ void setup()
     readSensor[TARGET_SYSTEM] = readAllSensors;
 
     // TODO: Have command return bool if it executed properly
+    executeAction[ACTION_INVALID] = emptyEA;
     executeAction[ACTION_DEMAND] = cmd_demand;
+    executeAction[ACTION_SET] = cmd_set;
+    executeAction[ACTION_GET] = cmd_get;
+    executeAction[ACTION_SCHEDULE] = cmd_schedule;
 }
 
 // have a integer holding the ammount of times per second, if its been 1 second divided on
@@ -420,7 +435,7 @@ void loop()
             sendMsgStructToController(msg_to_ctrlr);
         } else
         {   
-            bool cmdExecuted = executeAction[msg_from_ctrlr.target](msg_to_ctrlr);
+            bool cmdExecuted = executeAction[msg_from_ctrlr.action](msg_to_ctrlr);
             
             if (!cmdExecuted)
             {
