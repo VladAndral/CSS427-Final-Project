@@ -112,6 +112,7 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
     receivedData = true;
     memcpy(&msg_from_ctrlr, data, sizeof(msg_from_ctrlr));
+    //should we be checking here the size of the sent vs the recieved data? to make sure we got correct data?
 }
 
 // Function that runs if I send something
@@ -128,7 +129,7 @@ void pir_ISR()
 
 void photo_ISR()
 {
-
+    photo.data = digitalRead(PHOTO_BOARD_PIN);
 }
 
 void rf_ISR()
