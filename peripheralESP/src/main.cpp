@@ -270,6 +270,10 @@ bool cmd_demand(Peri_Msg &msg_to_ctrlr)
 
 bool cmd_set(Peri_Msg &msg_to_ctrlr)
 {
+    if(msg_from_ctrlr.attr_name == ATTR_NAME_INVALID){
+        msg_to_ctrlr.recv_msg_error = true;
+        return false;
+    }
     return false;
 
 }
