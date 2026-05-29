@@ -1,11 +1,13 @@
 #include <WString.h>
 
+//find and replace
 #define PROJ_WIFI_CHANNEL 11
 #define TOK_ARR_SIZE 10
 
 /*
     Might not need these
 */
+//maps human readable word to a number. We choose int because 32bit processor.
 enum SensorID : int
 {
     ID_PIR = 1,
@@ -31,12 +33,18 @@ enum CommandType : int
 
 #define NUM_OF_TARGETS TARGET_SENTINEL-1
 #define NUM_OF_SENSORS 3
+//we use this target_sentinal to 5 -1, to get the number of targets we can send commands to. 
 /*
 To abstract returning what enum type a token is
 
 Count is for function pointer array
 */
+
 #define INVALID_OFFSET 1
+//note that for the Target_sentinal to matter, we would change and not set any of these
+//options to numbers, and instead leave them blank and enum would auto increment each one
+
+
 enum Target : int
 {
     TARGET_INVALID = 0,
@@ -47,6 +55,7 @@ enum Target : int
     TARGET_SENTINEL = 5
 };
 
+//same thing here, can delete all the numbers because enum does the same thing
 enum Action : int
 {
     ACTION_INVALID = 0,
@@ -60,8 +69,10 @@ enum Action : int
     Because attribute names from all possible targets are together, just accounting for
     the offset where the next target is
 */
+
 #define ATTR_NAME_OFFSET_SNS 0
 #define ATTR_NAME_OFFSET_SYS 2
+
 enum Attr_Name : int
 {
     ATTR_NAME_INVALID = 0,
@@ -97,8 +108,12 @@ extern uint8_t peripheral_mac[];
 
     Packed struct ensures consistent byte alignment across devices
 */
+//we have this because if we just initialize
+// it gets set to 0 and we dont know if the sensor reading is 0 or not
+//if its this value, then invalid - periferal checks if val1 = invalid, then ignore
 #define VALUE_INVALID -9999
 // typedef struct __attribute__((packed))
+//packed tells the system to ignore all internal padding
 struct __attribute__((packed)) Ctrlr_Msg
 {
     Target target;
@@ -129,6 +144,7 @@ struct __attribute__((packed)) Peri_Msg
     int RF_data;
 };
 
+//these exist and are defined in a different file - used for human translation
 extern String targetNames[];
 extern String actionNames[];
 extern String AttributeNames_sensor[];

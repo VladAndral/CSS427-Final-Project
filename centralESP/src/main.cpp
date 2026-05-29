@@ -107,8 +107,7 @@ Target getTarget(String parameter)
 /// @return Target enum object. May be _INVALID
 Action getAction(String parameter, Target target)
 {
-    if (parameter.isEmpty() || (parameter == "demand" && target >= TARGET_SNS_INDEX_LIMIT))
-        return ACTION_INVALID;
+    if (parameter.isEmpty()) return ACTION_INVALID;
 
     for (int i = 0; i < actionNames->length(); i++)
     {
