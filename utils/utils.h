@@ -78,7 +78,7 @@ enum Attr_Name : int
     ATTR_NAME_INVALID = 0,
     ATTR_NAME_POLL_FREQ = 1,
     ATTR_NAME_SENSITIVITY = 2,
-    ATTR_NAME__MODE = 3
+    ATTR_NAME_MODE = 3
 };
 #define ATTR_VAL_OFFSET_SYS 2
 enum Attr_Val : int
