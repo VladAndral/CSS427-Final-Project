@@ -61,7 +61,7 @@ struct PIR_struct
 {
     bool enabled;
     uint32_t periodLen_ms;
-    int reading;
+    int numOfReadingsDuringPeriod;
     uint32_t prevTime;
     int data;
 };
@@ -72,10 +72,10 @@ struct PHOTO_struct
 {
     bool enabled;
     uint32_t periodLen_ms;
-    int reading;
+    uint32_t prevTime;
+    int numOfReadingsDuringPeriod;
     int noiseFloor;
     int trigMin;
-    uint32_t prevTime;
     uint16_t data;
 };
 
@@ -84,10 +84,11 @@ PHOTO_struct photo;
 struct RF_struct
 {
     bool enabled;
-    int reading;
+    uint32_t periodLen_ms;
+    uint32_t prevTime;
+    int numOfReadingsDuringPeriod;
     int noiseFloor;
     int trigMin;
-    uint32_t prevTime;
     float data;
 };
 
@@ -97,15 +98,16 @@ RF_struct rf;
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
-void emptyRead() {}
+bool emptyRead() {}
 /// @brief Functions that read, and only read, their corresponding sensors
-void (*readSensor[NUM_OF_TARGETS])() = {emptyRead};
+bool (*readSensor[NUM_OF_TARGETS])() = {emptyRead};
 
-bool emptyIA() { return false; }
+bool emptyEA(Peri_Msg &to_ctrlr) { return false; }
 /// @brief Each target should have a function that interprets an action.
 /// Returns false if any part of the message is not valid and/or the action was not executed.
 /// Returns true if the command is valid; these functions will operate on sensors if the command is valid
-bool (*executeAction[NUM_OF_TARGETS + INVALID_OFFSET])() = {emptyIA};
+/// @param Takes a reference to the message to be sent to the controller
+bool (*executeAction[NUM_OF_TARGETS + INVALID_OFFSET])(Peri_Msg&) = {emptyEA};
 
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
@@ -199,7 +201,7 @@ void calibrateRF()
 }
 
 // TODO: Restructure read functions to only read; they shouldn't care about msg
-void readPhoto()
+bool readPhoto()
 {
     int data = 0;
     // How we enter critical sections. Do not use cli() or sei()
@@ -207,9 +209,10 @@ void readPhoto()
     data = analogRead(PHOTO_BOARD_PIN);
     portEXIT_CRITICAL(&mux);
     photo.data = data;
+    return data;
 }
 
-void readPIR()
+bool readPIR()
 {
     int data;
     portENTER_CRITICAL(&mux);
@@ -218,12 +221,12 @@ void readPIR()
     pir.data = data;
 }
 
-void readRF()
+bool readRF()
 {
 
 }
 
-void readAllSensors()
+bool readAllSensors()
 {
     readPhoto();
     readPIR();
@@ -235,64 +238,53 @@ void sendMsgStructToController(Peri_Msg &msg_to_ctrlr)
     ESPNow.send_message(controller_mac, (uint8_t *)&msg_to_ctrlr, sizeof(msg_to_ctrlr));
 }
 
-// bool cmd_pir(Peri_Msg &msg_to_ctrlr)
-// {
-//     if (msg_from_ctrlr.action == ACTION_INVALID)
-//     {
-//         msg_to_ctrlr.recv_msg_error = true;
-//         return false;
-//     }
-
-//     if (msg_from_ctrlr.action == ACTION_DEMAND)
-//     {
-//         readPIR();
-//         return true;
-//     }
-
-//     if (msg_from_ctrlr.action == ACTION_SET)
-//     {
-//         if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
-//         {
-//             msg_to_ctrlr.recv_msg_error = true;
-//             return false;
-//         }
-//     }
-// }
-
-void cmd_demand(Target target)
+bool cmd_pir(Peri_Msg &msg_to_ctrlr)
 {
-    readSensor[target]();
+    if (msg_from_ctrlr.action == ACTION_INVALID)
+    {
+        msg_to_ctrlr.recv_msg_error = true;
+        return false;
+    }
+
+    if (msg_from_ctrlr.action == ACTION_DEMAND)
+    {
+        readPIR();
+        return true;
+    }
+
+    if (msg_from_ctrlr.action == ACTION_SET)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+        {
+            msg_to_ctrlr.recv_msg_error = true;
+            return false;
+        }
+    }
 }
 
-/// @brief Create a new controller message struct (for receiving a message from the controller)
-/// @return `Ctrlr_Msg` struct with all fields set to their respective INVALID states
-Ctrlr_Msg new_msg_from_ctrlr()
+bool cmd_demand(Peri_Msg &msg_to_ctrlr)
 {
-    Ctrlr_Msg toReturn;
-    toReturn.action = ACTION_INVALID;
-    toReturn.attr_name = ATTR_NAME_INVALID;
-    toReturn.attr_val = ATTR_VAL_INVALID;
-    toReturn.target = TARGET_INVALID;
-    toReturn.val1 = VALUE_INVALID;
-    toReturn.val2 = VALUE_INVALID;
-    toReturn.val3 = VALUE_INVALID;
+    return readSensor[msg_from_ctrlr.target]();
+}
 
-    return toReturn;
+bool cmd_set()
+{
+    return false;
 }
 
 Peri_Msg new_msg_to_ctrlr()
 {
     Peri_Msg toReturn;
-    toReturn.ctrlr_msg = new_msg_from_ctrlr();
-    toReturn.Photo_detected = false;
-    toReturn.Photo_noiseLevel = VALUE_INVALID;
-    toReturn.Photo_numOfDetct_inPeriod = VALUE_INVALID;
-    toReturn.PIR_detected = false;
-    toReturn.PIR_numOfDetct_inPeriod = VALUE_INVALID;
     toReturn.recv_msg_error = true;
+    toReturn.readingType = 0;
+    toReturn.PIR_detected = false;
+    toReturn.PIR_numOfDetct_inPeriod = 0;
+    toReturn.Photo_detected = false;
+    toReturn.Photo_numOfDetct_inPeriod = 0;
+    toReturn.Photo_data = 0;
     toReturn.RF_detected = false;
-    toReturn.RF_noiseLevel = VALUE_INVALID;
-    toReturn.RF_numOfDetct_inPeriod = VALUE_INVALID;
+    toReturn.RF_numOfDetct_inPeriod = 0;
+    toReturn.RF_data = 0;
 
     return toReturn;
 }
@@ -335,6 +327,7 @@ void setup()
     readSensor[SENSOR_RF] = readRF;
     readSensor[TARGET_SYSTEM] = readAllSensors;
 
+    // TODO: Have command return bool if it executed properly
     executeAction[ACTION_DEMAND] = cmd_demand;
 }
 
