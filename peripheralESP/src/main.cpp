@@ -4,7 +4,7 @@
  * you can do whatever you want with this stuff. If we meet some day, and you
  * think this stuff is worth it, you can buy me a beer in return
  */
-#include <utils.h>
+#include "utils.h"
 #include <Arduino.h>
 
 #include <esp_wifi.h>
@@ -23,6 +23,12 @@ Green flag sticky is peripheral
 #define PIR_BOARD_PIN 13
 #define PHOTO_BOARD_PIN 34
 #define RF_BOARD_PIN 19
+
+/*
+    UART Pins for ESP32
+    Tx: GPIO 1 -- Physical pin TX0, above D22
+    Rx: GPIO 3 -- Physical pin RX0, below D21
+*/
 
 #define PIR_DATA_ID 1
 #define PHOTO_DATA_ID 2
@@ -397,6 +403,9 @@ bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
 Peri_Msg new_msg_to_ctrlr()
 {
     Peri_Msg toReturn;
+    toReturn.pir = false;
+    toReturn.photo = false;
+    toReturn.rf = false;
     toReturn.recv_msg_error = true;
     toReturn.readingType = 0;
     toReturn.PIR_detected = false;

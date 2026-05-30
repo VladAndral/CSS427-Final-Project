@@ -132,8 +132,13 @@ struct __attribute__((packed)) Ctrlr_Msg
 // Don't need to do typedef in C++ b/c it's done automatically
 struct __attribute__((packed)) Peri_Msg
 {
-    int PIR_data;
     bool recv_msg_error;
+
+    bool pir;
+    bool photo;
+    bool rf;
+    
+    int PIR_data;
     int readingType;
     bool PIR_detected;
     int PIR_numOfDetct_inPeriod;
