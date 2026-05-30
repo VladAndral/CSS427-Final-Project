@@ -78,7 +78,8 @@ enum Attr_Name : int
     ATTR_NAME_INVALID = 0,
     ATTR_NAME_POLL_FREQ = 1,
     ATTR_NAME_SENSITIVITY = 2,
-    ATTR_NAME_MODE = 3
+    ATTR_NAME_ENABLE_POLL = 3, //newly added for enable and disabling polling of all sensors
+    ATTR_NAME_MODE = 4
 };
 #define ATTR_VAL_OFFSET_SYS 2
 enum Attr_Val : int
@@ -134,9 +135,9 @@ struct __attribute__((packed)) Peri_Msg
 {
     bool recv_msg_error;
 
-    bool pir;
-    bool photo;
-    bool rf;
+    // bool pir;
+    // bool photo;
+    // bool rf;
     
     int PIR_data;
     int readingType;

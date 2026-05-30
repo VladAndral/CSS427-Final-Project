@@ -19,7 +19,8 @@ String actionNames[] = {
 
 String AttributeNames_sensor[] {
     "pollrate",
-    "sensitivity"
+    "sensitivity",
+    "enable"
 };
 
 String AttributeNames_system[] {
