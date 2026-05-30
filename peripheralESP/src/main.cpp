@@ -29,6 +29,8 @@ Green flag sticky is peripheral
     Tx: GPIO 1 -- Physical pin TX0, above D22
     Rx: GPIO 3 -- Physical pin RX0, below D21
 */
+#define UART_RX GPIO_NUM_16
+#define UART_TX GPIO_NUM_17
 
 #define PIR_DATA_ID 1
 #define PHOTO_DATA_ID 2
@@ -451,6 +453,7 @@ Peri_Msg new_msg_to_ctrlr()
 void setup()
 {
     Serial.begin(9600);
+    Serial2.begin(115200, SERIAL_8N1, UART_RX, UART_TX);
     Serial.println("ESPNow receiver Demo");
 #ifdef ESP8266
     WiFi.mode(WIFI_STA); // MUST NOT BE WIFI_MODE_NULL
@@ -559,13 +562,33 @@ void loop()
     // }
 
     /*
-        Serial is for RasPi UART communication
+        RasPi UART communication
     */
+    if (Serial2.available())
+    {
+        String rfData = Serial2.readStringUntil('~');
+        // Clear rest of buffer
+        while (Serial2.available()) Serial2.read();
+        Serial.print("ESP32: I received your message: ");
+        Serial.println(rfData);
+    }
+    
     if (Serial.available())
     {
-        String data = Serial.readStringUntil('~');
-        Serial.print("ESP32: I received your message: ");
-        Serial.println(data + "~");
+        String userInput = Serial.readStringUntil('\n');
+        userInput.trim();
+
+        if (userInput.length())
+        {
+            userInput.toLowerCase();
+            Serial.print("User message to pi:");
+            Serial.println(userInput);
+         
+            userInput += '~';
+            Serial2.print(userInput);
+        }
+        
+        while (Serial.available()) Serial.read();
     }
 
     if (receivedData)
@@ -594,7 +617,7 @@ void loop()
     }
 
     curTime = millis();
-    for (int i = 0; i < NUM_OF_TARGETS;)
+    for (int i = 0; i < NUM_OF_SENSORS; i++)
     {
     }
 }
