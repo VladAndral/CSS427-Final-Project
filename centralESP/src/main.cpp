@@ -312,8 +312,72 @@ bool buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
     return true;
 }
 
+Target expectedTarget = TARGET_INVALID;
+Attr_Name expectedAttr = ATTR_NAME_INVALID;
+bool waitingForReply = false;
+
+void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+{
+    if (data_len == sizeof(Peri_Msg)) 
+    {
+        memcpy(&msg_from_peri, data, sizeof(msg_from_peri));
+
+        if (msg_from_peri.recv_msg_error) {
+            Serial.println("[ERROR]: Peripheral rejected the command.");
+            waitingForReply = false; 
+            return; 
+        }
+        //IF ISR TRIGGERED
+        if (msg_from_peri.PIR_detected) {
+            Serial.println("---------------- URGENT: PIR MOTION DETECTED BY ISR!-------------");
+        }
+        if (msg_from_peri.Photo_detected) {
+            Serial.println("---------------- URGENT: PHOTO MOTION DETECTED BY ISR!-------------");
+        }
+        if (msg_from_peri.RF_detected) {
+            Serial.println("---------------- URGENT: RF MOTION DETECTED BY ISR!-------------");
+        }
 
 
+        // waiting for periferal to send get or demand data back.
+        if (waitingForReply) {
+            
+            // if Sensor DEMAND
+            if (msg_from_peri.readingType == 1) {
+                Serial.print("\n[ON-DEMAND REPORT] -> ");
+                if (expectedTarget == SENSOR_PIR) Serial.printf("PIR Current Value: %d\n", msg_from_peri.PIR_data);
+                if (expectedTarget == SENSOR_PHOTO) Serial.printf("Photo Current Value: %d\n", msg_from_peri.Photo_data);
+                if (expectedTarget == SENSOR_RF) Serial.printf("RF Current Value: %d\n", msg_from_peri.RF_data);
+            }
+        
+            //for get BLANK requests
+            else {
+                Serial.print("\n[SETTINGS REPORT] -> ");
+                if (expectedTarget == SENSOR_PIR && expectedAttr == ATTR_NAME_POLL_FREQ) 
+                    Serial.printf("PIR Poll Frequency: %d ms\n", msg_from_peri.PIR_data);
+                else if (expectedTarget == SENSOR_PHOTO && expectedAttr == ATTR_NAME_POLL_FREQ) 
+                    Serial.printf("Photo Poll Frequency: %d ms\n", msg_from_peri.Photo_data);
+                    //still need to add other combinations of get BLANK
+            }
+
+            waitingForReply = false;
+            return;
+        }
+
+
+        // AUTOMATIC POLLING!!!
+        // We didn't ask for this, but the peripheral's millis() timer went off -- need to implement still
+        
+    }
+    else 
+    {
+        // Debugging
+        if (data[data_len - 1] == '~') {
+            for (int i = 0; i < data_len - 1; i++) Serial.printf("%c", data[i]);
+            Serial.println("");
+        }
+    }
+}
 
 
 /****************************
@@ -404,8 +468,14 @@ void loop()
             
             if (validMessage)
             {
+                if (msg_to_peri.action == ACTION_GET) {
+                    expectedTarget = msg_to_peri.target;
+                    expectedAttr = msg_to_peri.attr_name;
+                    waitingForReply = true;
+                }
                 Serial.println("Sending message...");
                 sendMsgStructToPeri();
+                //waitingForReply = true;
             }
 
             resetMsg();
