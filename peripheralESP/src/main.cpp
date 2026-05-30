@@ -52,6 +52,14 @@ int pollFreqPhoto = 5;
 int pollTimePhoto = 250;
 int photoData;
 
+const int rfT_min = 100;
+const int PhotoT_min = 100;
+
+const int normalMode = 50;
+const int maintMode = 70;
+const int quietMode = 10;
+const int lockdownMode = 90;
+
 long start_time;
 long end_time;
 
@@ -63,9 +71,8 @@ const char *recv_data;
 bool receivedData = false;
 
 Ctrlr_Msg msg_from_ctrlr;
-Peri_Msg msg_to_ctrlr;
 
-struct PIR_struct
+struct pir_struct
 {
     bool enabled;
     uint32_t periodLen_ms;
@@ -74,9 +81,9 @@ struct PIR_struct
     int data;
 };
 
-PIR_struct pir;
+pir_struct pir;
 
-struct PHOTO_struct
+struct photo_struct
 {
     bool enabled;
     uint32_t periodLen_ms;
@@ -85,11 +92,16 @@ struct PHOTO_struct
     int noiseFloor;
     int trigMin;
     uint16_t data;
+    
+    int schedule_hour;
+    int schedule_minute;
+    Attr_Name scheduledAttribute;
+    int scheduledAttrVal;
 };
 
-PHOTO_struct photo;
+photo_struct photo;
 
-struct RF_struct
+struct rf_struct
 {
     bool enabled;
     uint32_t periodLen_ms;
@@ -98,16 +110,39 @@ struct RF_struct
     int noiseFloor;
     int trigMin;
     float data;
+
+    int schedule_hour;
+    int schedule_minute;
+    Attr_Name scheduledAttribute;
+    int scheduledAttrVal;
 };
 
-RF_struct rf;
+rf_struct rf;
+
+struct system_struct
+{
+    pir_struct &pir;
+    photo_struct &photo;
+    rf_struct &rf;
+    Attr_Val mode;
+
+    int schedule_hour;
+    int schedule_minute;
+    Attr_Name scheduledAttribute;
+    // Mode can be put into this variable, so it's easier to interpret
+    int scheduledAttrVal;
+};
+
+bool pir_intr = false;
+bool photo_intr = false;
+bool rf_intr = false;
 
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 bool emptyRead() { return false; }
 /// @brief Functions that read, and only read, their corresponding sensors
-bool (*readSensor[NUM_OF_TARGETS])() = {emptyRead};
+bool (*readSensor[NUM_OF_TARGETS + INVALID_OFFSET])() = {emptyRead};
 
 bool emptyEA(Peri_Msg &to_ctrlr) { return false; }
 /// @brief Each target should have a function that interprets an action.
@@ -131,62 +166,24 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void pir_ISR()
+void IRAM_ATTR pir_ISR()
 {
+    pir_intr = true;
     pir.data = digitalRead(PIR_BOARD_PIN);
 }
 
-void photo_ISR()
+void IRAM_ATTR photo_ISR()
 {
+    photo_intr = true;
     photo.data = digitalRead(PHOTO_BOARD_PIN);
 }
 
-void rf_ISR()
+void IRAM_ATTR rf_ISR()
 {
+    rf_intr = true;
     // If HIGH, traffic detected
     // If LOW, no traffic detected
 }
-
-// void sendMessage(int sensorTypeID)
-// {
-//     unsigned long timeSinceBoot = millis();
-//     int seconds = (timeSinceBoot / 1000) % 60;
-//     int minutes = ((timeSinceBoot / 1000) / 60) % 60;
-//     int hours = ((timeSinceBoot / 1000) / 60) / 60;
-
-//     std::string timeSinceBoot_str = "";
-//     timeSinceBoot_str += std::to_string(hours);
-//     timeSinceBoot_str += "hr ";
-//     timeSinceBoot_str += std::to_string(minutes);
-//     timeSinceBoot_str += "min ";
-//     timeSinceBoot_str += std::to_string(seconds);
-//     timeSinceBoot_str += "sec ";
-
-//     const char *timeSinceBoot_chars = timeSinceBoot_str.c_str();
-
-//     String output_str = "";
-//     const char *output_chars = output_str.c_str();
-
-//     switch (sensorTypeID)
-//     {
-//     case PIR_DATA_ID:
-//         output_str += "PIR Sensor: Movement detected at ";
-//         output_str += timeSinceBoot_chars;
-//         output_str += "~";
-
-//         output_chars = output_str.c_str();
-
-//         Serial.println("Sending PIR sensor info to controller");
-//         // NOTE: strlen does NOT count the null terminator (ASCII 0)
-//         // Serial.println("\r\n    \r\n");
-//         // Serial.println(charSentOut);
-//         break;
-//     default:
-//         Serial.println("Can't send message because idk what this sensor is...");
-//     }
-
-//     ESPNow.send_message(controller_mac, (uint8_t *)output_chars, strlen(output_chars));
-// }
 
 void calibratePhoto()
 {
@@ -210,17 +207,19 @@ void calibrateRF()
 // TODO: Restructure read functions to only read; they shouldn't care about msg
 bool readPhoto()
 {
+    uint16_t toStore = analogRead(PHOTO_BOARD_PIN);
     // How we enter critical sections. Do not use cli() or sei()
     portENTER_CRITICAL(&mux);
-    photo.data = analogRead(PHOTO_BOARD_PIN);
+    photo.data = toStore;
     portEXIT_CRITICAL(&mux);
     return true;
 }
 
 bool readPIR()
 {
+    int toStore = digitalRead(PIR_BOARD_PIN);
     portENTER_CRITICAL(&mux);
-    pir.data = digitalRead(PIR_BOARD_PIN);
+    pir.data = toStore;
     portEXIT_CRITICAL(&mux);
     return true;
 }
@@ -242,16 +241,29 @@ void sendMsgStructToController(Peri_Msg &msg_to_ctrlr)
 
 bool cmd_demand(Peri_Msg &msg_to_ctrlr)
 {
-    return readSensor[msg_from_ctrlr.target]();
+    bool success = readSensor[msg_from_ctrlr.target]();
+    
+    if (success) {
+        msg_to_ctrlr.readingType = 1; // Mark as on-demand report
+        
+        if (msg_from_ctrlr.target == SENSOR_PIR) {
+            msg_to_ctrlr.PIR_data = pir.data;
+        } 
+        else if (msg_from_ctrlr.target == SENSOR_PHOTO) {
+            msg_to_ctrlr.Photo_data = photo.data;
+        } 
+        else if (msg_from_ctrlr.target == SENSOR_RF) {
+            msg_to_ctrlr.RF_data = rf.data;
+        }
+        else if (msg_from_ctrlr.target == TARGET_SYSTEM) {
+            // Pack all data for a system-wide demand
+            msg_to_ctrlr.PIR_data = pir.data;
+            msg_to_ctrlr.Photo_data = photo.data;
+            msg_to_ctrlr.RF_data = rf.data;
+        }
+    }
+    return success;
 }
-const int rfT_min = 100;
-const int PhotoT_min = 100;
-
-const int normalMode = 50;
-const int maintMode = 70;
-const int quietMode = 10;
-const int lockdownMode = 90;
-
 bool cmd_set(Peri_Msg &msg_to_ctrlr)
 {
     if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
@@ -491,76 +503,19 @@ void setup()
     executeAction[ACTION_SET] = cmd_set;
     executeAction[ACTION_GET] = cmd_get;
     executeAction[ACTION_SCHEDULE] = cmd_schedule;
+
+    pir.prevTime = 0;
+    photo.prevTime = 0;
+    rf.prevTime = 0;
+    
+    pir.enabled = true;
+    photo.enabled = true;
+    rf.enabled = true;
 }
 
 // have a integer holding the ammount of times per second, if its been 1 second divided on
 void loop()
 {
-
-    // Serial.println("in critical section");
-    // bool PIRDetectVar = movementDetected;
-    // bool photoVar = speechDetected;
-    // bool deviceVar = deviceDetected;
-
-    // int prev_time_PIR;
-    // int cur_time;
-    // int prev_time_PHOTO;
-    // int prev_time_RF;
-
-    // cur_time = millis();
-    // if (cur_time - prev_time_PIR >= sensorPeriodPIR)
-    // {
-    //     readPIR();
-    //     sendMessage(PIR_DATA_ID);
-    //     prev_time_PIR = cur_time;
-    // }
-    // if (cur_time - prev_time_PHOTO >= sensorPeriodPHOTO)
-    // {
-    //     readPhoto();
-    //     sendMessage(PHOTO_DATA_ID);
-    //     prev_time_PHOTO = cur_time;
-    // }
-    // if (cur_time - prev_time_RF >= sensorPeriodRF)
-    // {
-    //     readPhoto();
-    //     sendMessage(RF_DATA_ID);
-    //     prev_time_RF = cur_time;
-    // }
-    // I want this main loop to run, I want ot check the value of sensor period
-    //, and if the current time is greater than the last polled time - sensor period
-    // if()
-    // if(end_time - start_time < pollTimePhoto/pollFreqPhoto) end_time = millis();
-
-    // readPhoto();
-    // largestReading = (curReading > largestReading) ? curReading : largestReading;
-
-    // if (PIRDetectVar)
-    // {
-    //     Serial.println("Movement detected, sending message to controller");
-    //     sendMessage(PIR_DATA_ID);
-    //     portENTER_CRITICAL(&mux);
-    //     movementDetected = false;
-    //     portEXIT_CRITICAL(&mux);
-    // }
-
-    // if (photoVar)
-    // {
-    //     if (std::abs(photoData - noiseFloor) > std::abs(noiseFloor - noiseLimit))
-    //     {
-    //         sendMessage(PHOTO_DATA_ID);
-    //         portENTER_CRITICAL(&mux);
-    //         speechDetected = false;
-    //         portEXIT_CRITICAL(&mux);
-    //     }
-    // }
-
-    // if (deviceVar)
-    // {
-    //     portENTER_CRITICAL(&mux);
-    //     deviceDetected = false;
-    //     portEXIT_CRITICAL(&mux);
-    // }
-
     /*
         RasPi UART communication
     */
@@ -593,31 +548,54 @@ void loop()
 
     if (receivedData)
     {
+        Serial.println("Got something");
         receivedData = false;
-        Peri_Msg msg_to_ctrlr = new_msg_to_ctrlr();
+        Peri_Msg msg_to_ctrlr_user = new_msg_to_ctrlr();
         if (msg_from_ctrlr.target == TARGET_INVALID)
         {
-            msg_to_ctrlr.recv_msg_error = true;
-            sendMsgStructToController(msg_to_ctrlr);
+            Serial.println("Target error");
+            msg_to_ctrlr_user.recv_msg_error = true;
         }
         else
         {
-            bool cmdExecuted = executeAction[msg_from_ctrlr.action](msg_to_ctrlr);
-
-            if (!cmdExecuted)
-            {
-                msg_to_ctrlr.recv_msg_error = true;
-                sendMsgStructToController(msg_to_ctrlr);
-            }
-            else
-            {
-                // TODO:
-            }
+            Serial.println(msg_from_ctrlr.action);
+            bool cmdExecuted = executeAction[msg_from_ctrlr.action](msg_to_ctrlr_user);
+            
+            Serial.println(cmdExecuted);
+            msg_to_ctrlr_user.recv_msg_error = !cmdExecuted;
         }
+        sendMsgStructToController(msg_to_ctrlr_user);
     }
+    
+    // Peri_Msg msg_to_ctrlr_polling = new_msg_to_ctrlr();
+    // curTime = millis();
+    // bool gotReading = false;
+    
+    // if (pir.enabled && (curTime - pir.prevTime) >= pir.periodLen_ms)
+    // {
+    //     gotReading = true;
+    //     readPIR();
+    //     msg_to_ctrlr_polling.PIR_data = pir.data;
+    //     pir.prevTime = curTime;
+    // }
+    
+    // if (photo.enabled && (curTime - photo.prevTime) >= photo.periodLen_ms)
+    // {
+    //     gotReading = true;
+    //     readPhoto();
+    //     msg_to_ctrlr_polling.Photo_data = photo.data;
+    //     photo.prevTime = curTime;
+    // }
+    
+    // if (rf.enabled && (curTime - rf.prevTime) >= rf.periodLen_ms)
+    // {
+    //     gotReading = true;
+    //     readRF();
+    //     msg_to_ctrlr_polling.RF_data = rf.data;
+    //     rf.prevTime = curTime;
+    // }
 
-    curTime = millis();
-    for (int i = 0; i < NUM_OF_SENSORS; i++)
-    {
-    }
+    // if (gotReading) sendMsgStructToController(msg_to_ctrlr_polling);
+
+
 }
