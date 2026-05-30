@@ -4,7 +4,7 @@
  * you can do whatever you want with this stuff. If we meet some day, and you
  * think this stuff is worth it, you can buy me a beer in return
  */
-#include "utils.h"
+#include <utils.h>
 #include <Arduino.h>
 
 #include <esp_wifi.h>
@@ -100,7 +100,6 @@ struct RF_struct
 
 RF_struct rf;
 
-
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -113,14 +112,14 @@ bool emptyEA(Peri_Msg &to_ctrlr) { return false; }
 /// Returns false if any part of the message is not valid and/or the action was not executed.
 /// Returns true if the command is valid; these functions will operate on sensors if the command is valid
 /// @param Takes a reference to the message to be sent to the controller
-bool (*executeAction[NUM_OF_TARGETS + INVALID_OFFSET])(Peri_Msg&) = {emptyEA};
+bool (*executeAction[NUM_OF_TARGETS + INVALID_OFFSET])(Peri_Msg &) = {emptyEA};
 
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
     receivedData = true;
     memcpy(&msg_from_ctrlr, data, sizeof(msg_from_ctrlr));
-    //should we be checking here the size of the sent vs the recieved data? to make sure we got correct data?
+    // should we be checking here the size of the sent vs the recieved data? to make sure we got correct data?
 }
 
 // Function that runs if I send something
@@ -204,7 +203,6 @@ void calibratePhoto()
 // TODO:
 void calibrateRF()
 {
-
 }
 
 // TODO: Restructure read functions to only read; they shouldn't care about msg
@@ -240,8 +238,6 @@ void sendMsgStructToController(Peri_Msg &msg_to_ctrlr)
     ESPNow.send_message(controller_mac, (uint8_t *)&msg_to_ctrlr, sizeof(msg_to_ctrlr));
 }
 
-
-
 bool cmd_demand(Peri_Msg &msg_to_ctrlr)
 {
     return readSensor[msg_from_ctrlr.target]();
@@ -254,138 +250,166 @@ const int maintMode = 70;
 const int quietMode = 10;
 const int lockdownMode = 90;
 
-
 bool cmd_set(Peri_Msg &msg_to_ctrlr)
 {
-    if(msg_from_ctrlr.attr_name == ATTR_NAME_INVALID){
+    if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+    {
         msg_to_ctrlr.recv_msg_error = true;
         return false;
     }
-    
+
     // --- PIR SENSOR ---
-    if(msg_from_ctrlr.target == SENSOR_PIR){
-        if(msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ){
+    if (msg_from_ctrlr.target == SENSOR_PIR)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+        {
             pir.periodLen_ms = msg_from_ctrlr.val1;
             return true;
         }
         return false;
     }
     // --- PHOTO SENSOR ---
-    else if(msg_from_ctrlr.target == SENSOR_PHOTO){
-        if(msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ){
+    else if (msg_from_ctrlr.target == SENSOR_PHOTO)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+        {
             photo.periodLen_ms = msg_from_ctrlr.val1;
             return true;
         }
-        else if(msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY){
+        else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
+        {
             photo.trigMin = PhotoT_min - msg_from_ctrlr.val1;
             return true;
         }
         return false;
     }
     // --- RF SENSOR ---
-    else if(msg_from_ctrlr.target == SENSOR_RF){
-        if(msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ){
+    else if (msg_from_ctrlr.target == SENSOR_RF)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+        {
             rf.periodLen_ms = msg_from_ctrlr.val1;
             return true;
         }
-        else if(msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY){
+        else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
+        {
             rf.trigMin = rfT_min - msg_from_ctrlr.val1;
             return true;
         }
         return false;
     }
     // --- TARGET SYSTEM ---
-    else if(msg_from_ctrlr.target == TARGET_SYSTEM){
-        if(msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ){
+    else if (msg_from_ctrlr.target == TARGET_SYSTEM)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+        {
             // Change all poll freq for all sensors
             pir.periodLen_ms = msg_from_ctrlr.val1;
             photo.periodLen_ms = msg_from_ctrlr.val1;
             rf.periodLen_ms = msg_from_ctrlr.val1;
-            return true; 
+            return true;
         }
-        else if(msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY){
+        else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
+        {
             // PIR NOT POSSIBLE
             photo.trigMin = PhotoT_min - msg_from_ctrlr.val1;
             rf.trigMin = rfT_min - msg_from_ctrlr.val1;
-            return true; 
+            return true;
         }
-        else if(msg_from_ctrlr.attr_name == ATTR_NAME_MODE){
-            if(msg_from_ctrlr.attr_val == ATTR_VAL_SYS_NORMAL){
+        else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
+        {
+            if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_NORMAL)
+            {
                 pir.periodLen_ms = normalMode;
                 photo.periodLen_ms = normalMode;
                 rf.periodLen_ms = normalMode;
             }
-            else if(msg_from_ctrlr.attr_val == ATTR_VAL_SYS_MAINT){
+            else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_MAINT)
+            {
                 pir.periodLen_ms = maintMode;
                 photo.periodLen_ms = maintMode;
                 rf.periodLen_ms = maintMode;
             }
-            else if(msg_from_ctrlr.attr_val == ATTR_VAL_SYS_QUIET){
+            else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_QUIET)
+            {
                 pir.periodLen_ms = quietMode;
                 photo.periodLen_ms = quietMode;
                 rf.periodLen_ms = quietMode;
             }
-            else if(msg_from_ctrlr.attr_val == ATTR_VAL_SYS_LOCKDOWN){
+            else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_LOCKDOWN)
+            {
                 pir.periodLen_ms = lockdownMode;
                 photo.periodLen_ms = lockdownMode;
                 rf.periodLen_ms = lockdownMode;
             }
-            return true; 
+            return true;
         }
         return false;
     }
-    
+
     return false;
 }
 
 bool cmd_get(Peri_Msg &msg_to_ctrlr)
 {
-    if(msg_from_ctrlr.attr_name == ATTR_NAME_INVALID){
+    if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+    {
         msg_to_ctrlr.recv_msg_error = true;
         return false;
     }
-    
+
     // --- PIR SENSOR ---
-    if(msg_from_ctrlr.target == SENSOR_PIR){
-        if(msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ){
+    if (msg_from_ctrlr.target == SENSOR_PIR)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+        {
             // UNCOMMENT THIS once you add 'int PIR_data;' to your utils.h struct!
             msg_to_ctrlr.PIR_data = pir.periodLen_ms;
             return true;
         }
     }
     // --- PHOTO SENSOR ---
-    else if(msg_from_ctrlr.target == SENSOR_PHOTO){
-        if(msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ){
+    else if (msg_from_ctrlr.target == SENSOR_PHOTO)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+        {
             msg_to_ctrlr.Photo_data = photo.periodLen_ms;
             return true;
         }
-        else if(msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY){
-            msg_to_ctrlr.Photo_data = photo.trigMin; 
+        else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
+        {
+            msg_to_ctrlr.Photo_data = photo.trigMin;
             return true;
         }
     }
     // --- RF SENSOR ---
-    else if(msg_from_ctrlr.target == SENSOR_RF){
-        if(msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ){
+    else if (msg_from_ctrlr.target == SENSOR_RF)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+        {
             msg_to_ctrlr.RF_data = rf.periodLen_ms;
             return true;
         }
-        else if(msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY){
+        else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
+        {
             msg_to_ctrlr.RF_data = rf.trigMin;
             return true;
         }
     }
     // --- TARGET SYSTEM ---
-    else if(msg_from_ctrlr.target == TARGET_SYSTEM){
-        if(msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ){
+    else if (msg_from_ctrlr.target == TARGET_SYSTEM)
+    {
+        if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+        {
             // Return all three poll rates
             msg_to_ctrlr.PIR_data = pir.periodLen_ms; // Uncomment when added to struct
             msg_to_ctrlr.Photo_data = photo.periodLen_ms;
             msg_to_ctrlr.RF_data = rf.periodLen_ms;
             return true;
         }
-        else if(msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY){
-            // Send back the two relevant sensitivities 
+        else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
+        {
+            // Send back the two relevant sensitivities
             msg_to_ctrlr.Photo_data = photo.trigMin;
             msg_to_ctrlr.RF_data = rf.trigMin;
             return true;
@@ -552,10 +576,11 @@ void loop()
         {
             msg_to_ctrlr.recv_msg_error = true;
             sendMsgStructToController(msg_to_ctrlr);
-        } else
-        {   
+        }
+        else
+        {
             bool cmdExecuted = executeAction[msg_from_ctrlr.action](msg_to_ctrlr);
-            
+
             if (!cmdExecuted)
             {
                 msg_to_ctrlr.recv_msg_error = true;
