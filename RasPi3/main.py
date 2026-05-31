@@ -125,8 +125,8 @@ def format_line_for_peri(raw_line:str):
     toReturn = ""
     try:
         # 1. Extract Metadata
-        date = parts[0]
-        toReturn += date + ","
+        # date = parts[0]
+        # toReturn += date + ","
         time = parts[1][:5]
         toReturn += time + ","
         

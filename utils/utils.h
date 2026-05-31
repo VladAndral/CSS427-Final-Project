@@ -138,16 +138,16 @@ struct __attribute__((packed)) Peri_Msg
   bool photo;
   bool rf;
 
-  int PIR_data;
+  int pir_data;
   int readingType;
-  bool PIR_detected;
-  int PIR_numOfDetct_inPeriod;
-  bool Photo_detected;
-  int Photo_numOfDetct_inPeriod;
-  int Photo_data;
-  bool RF_detected;
-  int RF_numOfDetct_inPeriod;
-  int RF_data;
+  bool pir_detected;
+  int pir_numOfDetct_inPeriod;
+  bool photo_detected;
+  int photo_numOfDetct_inPeriod;
+  int photo_data;
+  bool rf_detected;
+  int rf_numOfDetct_inPeriod;
+  int rf_data;
 };
 
 // these exist and are defined in a different file - used for human translation

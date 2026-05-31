@@ -36,13 +36,15 @@ Green flag sticky is peripheral
 #define PHOTO_DATA_ID 2
 #define RF_DATA_ID 3
 
-volatile bool movementDetected = false;
-volatile bool speechDetected = false;
-volatile bool deviceDetected = false;
+#define READING_DEMAND 0
+#define READING_POLL 1
+#define READING_INTR 2
 
-volatile int sensorPeriodPIR;
-volatile int sensorPeriodPHOTO;
-volatile int sensorPeriodRF;
+#define RF_TOKEN_COUNT 6
+
+volatile bool pirDetected = false;
+volatile bool photoDetected = false;
+volatile bool rfDetected = false;
 
 bool prevDetection = false;
 
@@ -52,13 +54,20 @@ int pollFreqPhoto = 5;
 int pollTimePhoto = 250;
 int photoData;
 
-const int rfT_min = 100;
-const int PhotoT_min = 100;
+// Should not be const b/c trigMin depends on calibrated noise floor
+int trigMin_photo = 100;
+int trigMin_rf = 100;
 
-const int normalMode = 50;
-const int maintMode = 70;
-const int quietMode = 10;
-const int lockdownMode = 90;
+/*
+  Set when calibrate methods are called
+*/
+int trigMax_photo;
+int trigMax_rf;
+int sensitivityStep_photo;
+int sensitivityStep_rf;
+
+const int normalPollPeriod_ms = 50;
+const int maintPollPeriod_ms = 1*1000;
 
 long start_time;
 long end_time;
@@ -67,8 +76,15 @@ int64_t timeSinceBoot;
 
 uint32_t curTime;
 
+int clock_hour;
+int clock_minute;
+
+bool interruptsEnabled = false;
+
 const char *recv_data;
 bool receivedData = false;
+
+String rfDataTokens[RF_TOKEN_COUNT] = {""};
 
 Ctrlr_Msg msg_from_ctrlr;
 
@@ -197,6 +213,9 @@ void calibratePhoto()
     end_time = millis();
   }
   long noiseFloor = reading / count;
+  trigMin_photo = noiseFloor * 1.2;
+  trigMax_photo = noiseFloor * 10;
+  sensitivityStep_photo = (trigMax_photo - trigMin_photo)/100;
 }
 
 // TODO:
@@ -226,7 +245,17 @@ bool readPIR()
 
 bool readRF()
 {
-  return false;
+  float readingSum = 0;
+
+  for (int i = 1; i < rfDataTokens->length()-1; i++)
+  {
+    readingSum += rfDataTokens[i].toFloat();
+  }
+
+  float avgReading = readingSum / rfDataTokens->length()-1;
+  rf.data = avgReading;
+
+  return true;
 }
 
 bool readAllSensors()
@@ -245,30 +274,31 @@ bool cmd_demand(Peri_Msg &msg_to_ctrlr)
 
   if (success)
   {
-    msg_to_ctrlr.readingType = 1; // Mark as on-demand report
+    msg_to_ctrlr.readingType = READING_DEMAND; // Mark as on-demand report
 
     if (msg_from_ctrlr.target == SENSOR_PIR)
     {
-      msg_to_ctrlr.PIR_data = pir.data;
+      msg_to_ctrlr.pir_data = pir.data;
     }
     else if (msg_from_ctrlr.target == SENSOR_PHOTO)
     {
-      msg_to_ctrlr.Photo_data = photo.data;
+      msg_to_ctrlr.photo_data = photo.data;
     }
     else if (msg_from_ctrlr.target == SENSOR_RF)
     {
-      msg_to_ctrlr.RF_data = rf.data;
+      msg_to_ctrlr.rf_data = rf.data;
     }
     else if (msg_from_ctrlr.target == TARGET_SYSTEM)
     {
       // Pack all data for a system-wide demand
-      msg_to_ctrlr.PIR_data = pir.data;
-      msg_to_ctrlr.Photo_data = photo.data;
-      msg_to_ctrlr.RF_data = rf.data;
+      msg_to_ctrlr.pir_data = pir.data;
+      msg_to_ctrlr.photo_data = photo.data;
+      msg_to_ctrlr.rf_data = rf.data;
     }
   }
   return success;
 }
+
 bool cmd_set(Peri_Msg &msg_to_ctrlr)
 {
   if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
@@ -297,7 +327,7 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
-      photo.trigMin = PhotoT_min - msg_from_ctrlr.val1;
+      photo.trigMin = trigMin_photo + msg_from_ctrlr.val1;
       return true;
     }
     return false;
@@ -312,7 +342,7 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
-      rf.trigMin = rfT_min - msg_from_ctrlr.val1;
+      rf.trigMin = trigMin_rf - msg_from_ctrlr.val1;
       return true;
     }
     return false;
@@ -331,35 +361,35 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
       // PIR NOT POSSIBLE
-      photo.trigMin = PhotoT_min - msg_from_ctrlr.val1;
-      rf.trigMin = rfT_min - msg_from_ctrlr.val1;
+      photo.trigMin = trigMin_photo - msg_from_ctrlr.val1;
+      rf.trigMin = trigMin_rf - msg_from_ctrlr.val1;
       return true;
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
     {
       if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_NORMAL)
       {
-        pir.periodLen_ms = normalMode;
-        photo.periodLen_ms = normalMode;
-        rf.periodLen_ms = normalMode;
+        pir.enabled = photo.enabled = rf.enabled = true;
+        pir.periodLen_ms = photo.periodLen_ms = rf.periodLen_ms = normalPollPeriod_ms;
       }
       else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_MAINT)
       {
-        pir.periodLen_ms = maintMode;
-        photo.periodLen_ms = maintMode;
-        rf.periodLen_ms = maintMode;
+        pir.enabled = false;
+        photo.enabled = false;
+        rf.enabled = true;
+        rf.periodLen_ms = maintPollPeriod_ms;
       }
       else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_QUIET)
       {
-        pir.periodLen_ms = quietMode;
-        photo.periodLen_ms = quietMode;
-        rf.periodLen_ms = quietMode;
+        pir.enabled = photo.enabled = rf.enabled = true;
+        pir.periodLen_ms = photo.periodLen_ms = rf.periodLen_ms = normalPollPeriod_ms;
+        photo.trigMin = trigMin_photo;
+        rf.trigMin = trigMin_rf;
       }
       else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_LOCKDOWN)
       {
-        pir.periodLen_ms = lockdownMode;
-        photo.periodLen_ms = lockdownMode;
-        rf.periodLen_ms = lockdownMode;
+        pir.enabled = photo.enabled = rf.enabled = false;
+        interruptsEnabled = true;
       }
       return true;
     }
@@ -382,8 +412,8 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
   {
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
     {
-      // UNCOMMENT THIS once you add 'int PIR_data;' to your utils.h struct!
-      msg_to_ctrlr.PIR_data = pir.periodLen_ms;
+      // UNCOMMENT THIS once you add 'int pir_data;' to your utils.h struct!
+      msg_to_ctrlr.pir_data = pir.periodLen_ms;
       return true;
     }
   }
@@ -392,12 +422,12 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
   {
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
     {
-      msg_to_ctrlr.Photo_data = photo.periodLen_ms;
+      msg_to_ctrlr.photo_data = photo.periodLen_ms;
       return true;
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
-      msg_to_ctrlr.Photo_data = photo.trigMin;
+      msg_to_ctrlr.photo_data = photo.trigMin;
       return true;
     }
   }
@@ -406,12 +436,12 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
   {
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
     {
-      msg_to_ctrlr.RF_data = rf.periodLen_ms;
+      msg_to_ctrlr.rf_data = rf.periodLen_ms;
       return true;
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
-      msg_to_ctrlr.RF_data = rf.trigMin;
+      msg_to_ctrlr.rf_data = rf.trigMin;
       return true;
     }
   }
@@ -421,22 +451,23 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
     {
       // Return all three poll rates
-      msg_to_ctrlr.PIR_data = pir.periodLen_ms; // Uncomment when added to struct
-      msg_to_ctrlr.Photo_data = photo.periodLen_ms;
-      msg_to_ctrlr.RF_data = rf.periodLen_ms;
+      msg_to_ctrlr.pir_data = pir.periodLen_ms; // Uncomment when added to struct
+      msg_to_ctrlr.photo_data = photo.periodLen_ms;
+      msg_to_ctrlr.rf_data = rf.periodLen_ms;
       return true;
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
       // Send back the two relevant sensitivities
-      msg_to_ctrlr.Photo_data = photo.trigMin;
-      msg_to_ctrlr.RF_data = rf.trigMin;
+      msg_to_ctrlr.photo_data = photo.trigMin;
+      msg_to_ctrlr.rf_data = rf.trigMin;
       return true;
     }
   }
 
   return false;
 }
+
 bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
 {
 
@@ -451,17 +482,46 @@ Peri_Msg new_msg_to_ctrlr()
   toReturn.rf = false;
   toReturn.recv_msg_error = true;
   toReturn.readingType = 0;
-  toReturn.PIR_detected = false;
-  toReturn.PIR_numOfDetct_inPeriod = 0;
-  toReturn.Photo_detected = false;
-  toReturn.Photo_numOfDetct_inPeriod = 0;
-  toReturn.Photo_data = 0;
-  toReturn.RF_detected = false;
-  toReturn.RF_numOfDetct_inPeriod = 0;
-  toReturn.RF_data = 0;
+  toReturn.pir_detected = false;
+  toReturn.pir_numOfDetct_inPeriod = 0;
+  toReturn.photo_detected = false;
+  toReturn.photo_numOfDetct_inPeriod = 0;
+  toReturn.photo_data = 0;
+  toReturn.rf_detected = false;
+  toReturn.rf_numOfDetct_inPeriod = 0;
+  toReturn.rf_data = 0;
 
   return toReturn;
 }
+
+bool tokenizeRFdata(String &line, String tokenArray[], int numOfTokens)
+{
+  if (tokenArray->length() != numOfTokens) return false;
+
+  int tokenPos = 0;
+  String token = "";
+  for (char curChar : line)
+  {
+    if (curChar == ',')
+    {
+      tokenArray[tokenPos++] = token;
+      token = "";
+    }
+    else
+    {
+      token += curChar;
+    }
+  }
+  
+  tokenArray[tokenPos] = token;
+
+  return true;
+}
+
+
+
+
+
 
 /****************************
     SETUP AND MAIN LOOP
@@ -524,14 +584,22 @@ void loop()
   /*
       RasPi UART communication
   */
+  Serial2.write("reading");
+
   if (Serial2.available())
   {
     String rfData = Serial2.readStringUntil('~');
     // Clear rest of buffer
     while (Serial2.available())
       Serial2.read();
+    
     Serial.print("ESP32: I received your message: ");
     Serial.println(rfData);
+
+    tokenizeRFdata(rfData, rfDataTokens, RF_TOKEN_COUNT);
+
+    clock_hour = rfDataTokens[0].substring(0,2).toInt();
+    clock_minute = rfDataTokens[1].substring(2).toInt();
   }
 
   if (Serial.available())
@@ -574,33 +642,51 @@ void loop()
     sendMsgStructToController(msg_to_ctrlr_user);
   }
 
-  // Peri_Msg msg_to_ctrlr_polling = new_msg_to_ctrlr();
-  // curTime = millis();
-  // bool gotReading = false;
+  Peri_Msg msg_to_ctrlr_polling = new_msg_to_ctrlr();
+  curTime = millis();
+  bool gotReading = false;
 
-  // if (pir.enabled && (curTime - pir.prevTime) >= pir.periodLen_ms)
-  // {
-  //     gotReading = true;
-  //     readPIR();
-  //     msg_to_ctrlr_polling.PIR_data = pir.data;
-  //     pir.prevTime = curTime;
-  // }
+  if (pir.enabled && (curTime - pir.prevTime) >= pir.periodLen_ms)
+  {
+      gotReading = true;
+      readPIR();
+      msg_to_ctrlr_polling.pir_data = pir.data;
+      pir.prevTime = curTime;
+  }
 
-  // if (photo.enabled && (curTime - photo.prevTime) >= photo.periodLen_ms)
-  // {
-  //     gotReading = true;
-  //     readPhoto();
-  //     msg_to_ctrlr_polling.Photo_data = photo.data;
-  //     photo.prevTime = curTime;
-  // }
+  if (photo.enabled && (curTime - photo.prevTime) >= photo.periodLen_ms)
+  {
+      gotReading = true;
+      readPhoto();
+      msg_to_ctrlr_polling.photo_data = photo.data;
+      photo.prevTime = curTime;
+  }
 
-  // if (rf.enabled && (curTime - rf.prevTime) >= rf.periodLen_ms)
-  // {
-  //     gotReading = true;
-  //     readRF();
-  //     msg_to_ctrlr_polling.RF_data = rf.data;
-  //     rf.prevTime = curTime;
-  // }
+  if (rf.enabled && (curTime - rf.prevTime) >= rf.periodLen_ms)
+  {
+      gotReading = true;
+      readRF();
+      msg_to_ctrlr_polling.rf_data = rf.data;
+      rf.prevTime = curTime;
+  }
 
-  // if (gotReading) sendMsgStructToController(msg_to_ctrlr_polling);
+  if (gotReading)
+  {
+    msg_to_ctrlr_polling.readingType = READING_POLL;
+    sendMsgStructToController(msg_to_ctrlr_polling);
+  }
+
+  if (interruptsEnabled)
+  {
+    Peri_Msg msg_to_ctrlr_intr = new_msg_to_ctrlr();
+    bool anyDetection = false;
+    
+    if (pir_intr) msg_to_ctrlr_intr.pir_detected = anyDetection = true;
+    if (photo_intr) msg_to_ctrlr_intr.photo_detected = anyDetection = true;
+    if (rf_intr) msg_to_ctrlr_intr.pir_detected = anyDetection = true;
+
+    msg_to_ctrlr_intr.recv_msg_error = false;
+
+    if (anyDetection) sendMsgStructToController(msg_to_ctrlr_intr);
+  }
 }
