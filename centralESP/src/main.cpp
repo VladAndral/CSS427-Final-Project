@@ -135,22 +135,7 @@ Attr_Name getAttrName(String parameter, Target target)
   if (parameter.isEmpty())
     return ATTR_NAME_INVALID;
 
-  if (target <= SENSOR_RF)
-  {
-    for (int i = 0; i < AttributeNames_sensor->length(); i++)
-    {
-      if (parameter == AttributeNames_sensor[i])
-        return (Attr_Name)(i + INVALID_OFFSET + ATTR_NAME_OFFSET_SNS);
-    }
-  }
-  else if (target == TARGET_SYSTEM)
-  {
-    for (int i = 0; i < AttributeNames_system->length(); i++)
-    {
-      if (parameter == AttributeNames_system[i])
-        return (Attr_Name)(i + INVALID_OFFSET + ATTR_NAME_OFFSET_SYS);
-    }
-  }
+    // TODO: All targets should be able to do all attributes
 
   return ATTR_NAME_INVALID;
 }
@@ -163,18 +148,7 @@ Attr_Val getAttrVal(String parameter, Target target)
   if (parameter.isEmpty())
     return ATTR_VAL_INVALID;
 
-  switch (target)
-  {
-  case TARGET_SYSTEM:
-    for (int i = 0; i < AttributeValues_system->length(); i++)
-    {
-      if (parameter == AttributeValues_system[i])
-        return (Attr_Val)(i + INVALID_OFFSET + ATTR_VAL_OFFSET_SYS);
-    }
-    break;
-  default:
-    break;
-  }
+    // TODO:
 
   return ATTR_VAL_INVALID;
 }
@@ -320,6 +294,27 @@ bool buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
   return true;
 }
 
+String getSensorName(Target target)
+{
+  String sensorName = "";
+  switch (target)
+  {
+  case SENSOR_PIR:
+    sensorName = "PIR";
+    break;
+  case SENSOR_PHOTO:
+    sensorName = "PHOTODIODE";
+    break;
+  case SENSOR_RF:
+    sensorName = "ANTENNA";
+    break;
+  default:
+    sensorName = "!BAD TARGET";
+    break;
+  }
+  return sensorName;
+}
+
 Target expectedTarget = TARGET_INVALID;
 Attr_Name expectedAttr = ATTR_NAME_INVALID;
 bool waitingForReply = false;
@@ -428,6 +423,7 @@ void loop()
     }
   }
 
+  // If we got a message from the peripheral
   if (receivedData)
   {
     receivedData = false;
@@ -437,72 +433,45 @@ void loop()
       waitingForReply = false;
       return;
     }
-    // IF ISR TRIGGERED
-    if (msg_from_peri.pir_detected)
-    {
-      Serial.println("----------------PRESENCE DETECTED BY PIR SENSOR-------------");
-    }
-    else
-    {
-      Serial.println("----------------NO PRESENCE DETECTED BY PIR-------------");
-    }
-    
-    Serial.printf("----------------PIR WAS TRIPPED %u TIMES-------------\n", msg_from_peri.pir_numOfDetct_inPeriod);
-    
-    if (msg_from_peri.photo_detected)
-    {
-      Serial.println("----------------MOTION DETECTED BY PHOTODIODE-------------");
-    }
-    else
-    {
-      Serial.println("----------------NO MOTION DETECTED BY PHOTODIODE-------------");
-    }
-    
-    Serial.printf("----------------PHOTODIODE WAS TRIPPED %u TIMES-------------\n", msg_from_peri.photo_numOfDetct_inPeriod);
-    
-    if (msg_from_peri.rf_detected)
-    {
-      Serial.println("----------------NETWORK TRAFFIC DETECTED BY HACKRF-------------");
-    }
-    else
-    {
-      Serial.println("----------------NO NETWORK TRAFFIC DETECTED BY HACKRF-------------");
-    }
-    
-    Serial.printf("----------------HACKRF WAS TRIPPED %u TIMES-------------\n", msg_from_peri.rf_numOfDetct_inPeriod);
 
-    // waiting for periferal to send get or demand data back.
-    if (waitingForReply)
+    // if Sensor DEMAND
+    if (msg_from_peri.readingType == READING_DEMAND)
     {
-
-      // if Sensor DEMAND
-      if (msg_from_peri.readingType == 1)
+      Serial.print("\n[ON-DEMAND REPORT] -> ");
+      for (int i = 1; i < NUM_OF_SENSORS; i++)
       {
-        Serial.print("\n[ON-DEMAND REPORT] -> ");
-        if (expectedTarget == SENSOR_PIR)
-          Serial.printf("PIR Current Value: %d\n", msg_from_peri.pir_data);
-        if (expectedTarget == SENSOR_PHOTO)
-          Serial.printf("Photo Current Value: %d\n", msg_from_peri.photo_data);
-        if (expectedTarget == SENSOR_RF)
-          Serial.printf("RF Current Value: %d\n", msg_from_peri.rf_data);
+        // Only display sensors that got readings
+        // This way, we don't need to discriminate between sensor or system command
+        if (msg_from_peri.sensorData[i] != -1)
+        {
+          String sensorName = getSensorName((Target)i);
+          Serial.printf("%s Current Value: %d\n", sensorName, msg_from_peri.sensorData[i]);
+        }
       }
-
-      // for get BLANK requests
-      else
+    }
+    else if (msg_from_peri.readingType == READING_TRIGPOLL)
+    {
+      // IF ISR TRIGGERED
+      for (int i = 1; i < NUM_OF_SENSORS; i++)
       {
-        Serial.print("\n[SETTINGS REPORT] -> ");
-        if (expectedTarget == SENSOR_PIR && expectedAttr == ATTR_NAME_POLL_FREQ)
-          Serial.printf("PIR Poll Frequency: %d ms\n", msg_from_peri.pir_data);
-        else if (expectedTarget == SENSOR_PHOTO && expectedAttr == ATTR_NAME_POLL_FREQ)
-          Serial.printf("Photo Poll Frequency: %d ms\n", msg_from_peri.photo_data);
-        // still need to add other combinations of get BLANK
+        
+        if (msg_from_peri.sensorData[i] != -1)
+        {
+          String sensorName = getSensorName((Target)i);
+          if (msg_from_peri.sensorDetected[i])
+          {
+            Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------", sensorName);
+          }
+          else
+          {
+            Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------", sensorName);
+          }
+          
+          Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName, msg_from_peri.numOfDetectInPeriod[i]);
+        }
       }
-
-      waitingForReply = false;
-      return;
     }
 
-    // AUTOMATIC POLLING!!!
-    // We didn't ask for this, but the peripheral's millis() timer went off -- need to implement still
+    // TODO: Implement interpretation for each reading type
   }
 }

@@ -5,14 +5,14 @@
 #include "SensorSystem.h"
 
 // ISRs (Kept in IRAM)
-void IRAM_ATTR pir_ISR() { pir_intr = true; }
-void IRAM_ATTR photo_ISR() { photo_intr = true; }
-void IRAM_ATTR rf_ISR() { rf_intr = true; }
+void IRAM_ATTR pir_ISR() { sns_intr_flag[SENSOR_PIR] = true; }
+void IRAM_ATTR photo_ISR() { sns_intr_flag[SENSOR_PHOTO] = true; }
+void IRAM_ATTR rf_ISR() { sns_intr_flag[SENSOR_RF] = true; }
 
 // --- Sensor Instantiation & Array ---
-PIR pirSensor(PIR_BOARD_PIN, &pir_intr);
-Photo photoSensor(PHOTO_BOARD_PIN, &photo_intr);
-RF rfSensor(RF_BOARD_PIN, &rf_intr);
+PIR pirSensor(PIR_BOARD_PIN, &sns_intr_flag[SENSOR_PIR]);
+Photo photoSensor(PHOTO_BOARD_PIN, &sns_intr_flag[SENSOR_PHOTO]);
+RF rfSensor(RF_BOARD_PIN, &sns_intr_flag[SENSOR_RF]);
 
 // We size to NUM_OF_TARGETS + 1 so the enums (1 = PIR, 2 = Photo, 3 = RF) match the indices perfectly
 SensorBase *sensorArr[NUM_OF_TARGETS + 1] = {
@@ -58,11 +58,8 @@ void sendLogMsgToCtrlr(String logMsg)
 Peri_Msg new_msg_to_ctrlr()
 {
   // {0} guarantees every single bit in the struct is safely zeroed out
-  Peri_Msg toReturn = {0}; 
+  Peri_Msg toReturn; 
   
-  // Set only the specific fields that shouldn't be 0
-  toReturn.recv_msg_error = true;
-
   return toReturn;
 }
 /**********************************
@@ -76,25 +73,23 @@ bool cmd_demand(Peri_Msg &msg_to_ctrlr)
   if (target >= SENSOR_PIR && target <= SENSOR_RF)
   {
     float val = sensorArr[target]->getReading();
-    if (target == SENSOR_PIR)
-      msg_to_ctrlr.pir_data = (int)val;
-    if (target == SENSOR_PHOTO)
-      msg_to_ctrlr.photo_data = (int)val;
-    if (target == SENSOR_RF)
-      msg_to_ctrlr.rf_data = (int)val;
+    msg_to_ctrlr.sensorData[target] = (int)val;
     return true;
   }
   else if (target == TARGET_SYSTEM)
   {
     // System demand iterates over everything
-    msg_to_ctrlr.pir_data = (int)sensorArr[SENSOR_PIR]->getReading();
-    msg_to_ctrlr.photo_data = (int)sensorArr[SENSOR_PHOTO]->getReading();
-    msg_to_ctrlr.rf_data = (int)sensorArr[SENSOR_RF]->getReading();
+    for (int i = 1; i <= NUM_OF_SENSORS; i++)
+      msg_to_ctrlr.sensorData[i] = (int)sensorArr[i]->getReading();
     return true;
   }
   return false;
 }
 
+// TODO: Clean up b/c all targets have same attributes
+/// @brief 
+/// @param msg_to_ctrlr 
+/// @return 
 bool cmd_set(Peri_Msg &msg_to_ctrlr)
 {
   if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
@@ -150,12 +145,12 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
   {
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
     {
-      msg_to_ctrlr.getResult = sensorArr[target]->getPollPeriod();
+      msg_to_ctrlr.getResult[target] = sensorArr[target]->getPollPeriod();
       return true;
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY && sensorArr[target]->isSensitivityAdjustable())
     {
-      msg_to_ctrlr.getResult =  sensorArr[target]->getSensitivity();
+      msg_to_ctrlr.getResult[target] = sensorArr[target]->getSensitivity();
       return true;
     }
   }
@@ -211,12 +206,13 @@ void setup()
   pinMode(RF_BOARD_PIN, INPUT_PULLDOWN);
 
   attachInterrupt(digitalPinToInterrupt(PIR_BOARD_PIN), pir_ISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(PHOTO_BOARD_PIN), photo_ISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(PHOTO_BOARD_PIN), photo_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(RF_BOARD_PIN), rf_ISR, CHANGE);
 
 
   executeAction[ACTION_DEMAND] = cmd_demand;
   executeAction[ACTION_SET] = cmd_set;
+  executeAction[ACTION_GET] = cmd_get;
 
   sendLogMsgToCtrlr("Peripheral is booted up~");
 
@@ -255,14 +251,15 @@ void loop()
     }
   }
 
-  bool pir_tripped = sensorArr[SENSOR_PIR]->checkAndClearInterrupt();
-  bool photo_tripped = sensorArr[SENSOR_PHOTO]->checkAndClearInterrupt();
-  bool rf_tripped = sensorArr[SENSOR_RF]->checkAndClearInterrupt();
+  bool sensorTripped[NUM_OF_SENSORS] = {false};
 
-  if (pir_tripped) { pir_intr_count++; Serial.println("tripped"); }
-  if (photo_tripped) photo_intr_count++;
-  if (rf_tripped) rf_intr_count++;
-
+  for (int i = 1; i <= NUM_OF_SENSORS; i++)
+  {
+    sensorTripped[i] = sensorArr[i]->checkAndClearInterrupt();
+    if (sensorTripped[i])
+    sns_intr_count[SENSOR_PIR]++;
+  }
+    
   // Process Incoming Controller Messages
   if (receivedData)
   {
@@ -289,24 +286,9 @@ void loop()
     if (sensorArr[i]->poll(curTime, readingVal))
     {
       gotReading = true;
-      if (i == SENSOR_PIR)
-      {
-        msg_to_ctrlr_polling.pir_data = (int)readingVal;
-        msg_to_ctrlr_polling.pir_numOfDetct_inPeriod = pir_intr_count;
-        pir_intr_count = 0;
-      }
-      if (i == SENSOR_PHOTO)
-      {
-        msg_to_ctrlr_polling.photo_data = (int)readingVal;
-        msg_to_ctrlr_polling.photo_numOfDetct_inPeriod = photo_intr_count;
-        photo_intr_count = 0;
-      }
-      if (i == SENSOR_RF)
-      {
-        msg_to_ctrlr_polling.rf_data = (int)readingVal;
-        msg_to_ctrlr_polling.rf_numOfDetct_inPeriod = rf_intr_count;
-        rf_intr_count = 0;
-      }
+      msg_to_ctrlr_polling.sensorData[msg_from_ctrlr.target] = (int)readingVal;
+      msg_to_ctrlr_polling.numOfDetectInPeriod[msg_from_ctrlr.target] = sns_intr_count[msg_from_ctrlr.target];
+      sns_intr_count[msg_from_ctrlr.target] = 0;
     }
   }
 
@@ -324,18 +306,8 @@ void loop()
     bool anyDetection = false;
 
     // Use the boolean states saved at the top of the loop!
-    if (pir_tripped)
-    {
-      msg_to_ctrlr_intr.pir_detected = anyDetection = true;
-    }
-    if (photo_tripped)
-    {
-      msg_to_ctrlr_intr.photo_detected = anyDetection = true;
-    }
-    if (rf_tripped)
-    {
-      msg_to_ctrlr_intr.rf_detected = anyDetection = true;
-    }
+    for (int i = 1; i < NUM_OF_SENSORS; i++)
+      msg_to_ctrlr_intr.sensorDetected[i] = anyDetection = true;
 
     if (anyDetection)
       sendMsgStructToController(msg_to_ctrlr_intr);

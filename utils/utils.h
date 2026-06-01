@@ -24,6 +24,16 @@ enum CommandType : int
   CMD_SYS_MODE = 3
 };
 
+enum ReadingType : int
+{
+  READING_INVALID,
+  READING_DEMAND,
+  READING_POLL,
+  READING_TRIG,
+  READING_TRIGPOLL,
+  READING_GET
+};
+
 /*
          target                    action                    attributeName                    attributeValue
 
@@ -91,7 +101,8 @@ enum Attr_Val : int
   ATTR_VAL_SYS_NORMAL = 4,
   ATTR_VAL_SYS_MAINT = 5,
   ATTR_VAL_SYS_QUIET = 6,
-  ATTR_VAL_SYS_LOCKDOWN = 7
+  ATTR_VAL_SYS_LOCKDOWN = 7,
+  ATTR_VAL_SYS_CUSTOM = 8
 };
 
 /*
@@ -136,37 +147,23 @@ struct __attribute__((packed)) Ctrlr_Msg
 // Don't need to do typedef in C++ b/c it's done automatically
 struct __attribute__((packed)) Peri_Msg
 {
-  bool recv_msg_error;
-
-  bool pir;
-  bool photo;
-  bool rf;
-
-  int getResult;
-
-  int readingType;
-
-  bool pir_enabled;
-  int pir_data;
-  bool pir_detected;
-  int pir_numOfDetct_inPeriod;
-
-  bool photo_enabled;
-  int photo_data;
-  bool photo_detected;
-  int photo_numOfDetct_inPeriod;
+  bool recv_msg_error = true;
   
-  bool rf_enabled;
-  bool rf_detected;
-  int rf_numOfDetct_inPeriod;
-  int rf_data;
+  ReadingType readingType = READING_INVALID;
+
+  bool sensorEnabled[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
+  int sensorData[NUM_OF_SENSORS + INVALID_OFFSET] = {-1};
+  bool sensorDetected[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
+  int numOfDetectInPeriod[NUM_OF_SENSORS + INVALID_OFFSET] = {-1};
+
+  int getResult[NUM_OF_TARGETS] = {-1};
+
 };
 
 // these exist and are defined in a different file - used for human translation
 extern String targetNames[];
 extern String actionNames[];
-extern String AttributeNames_sensor[];
-extern String AttributeNames_system[];
-extern String AttributeValues_system[];
+extern String AttributeNames[];
+extern String AttributeValues[];
 
 void tokenize(String str, String arr[], int size);

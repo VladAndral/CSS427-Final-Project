@@ -30,10 +30,6 @@ Green flag sticky is peripheral
 #define PHOTO_DATA_ID 2
 #define RF_DATA_ID 3
 
-#define READING_DEMAND 0
-#define READING_POLL 1
-#define READING_INTR 2
-
 #define RF_TOKEN_COUNT 6
 
 bool prevDetection = false;
@@ -76,12 +72,8 @@ String rfDataTokens[RF_TOKEN_COUNT] = {""};
 Ctrlr_Msg msg_from_ctrlr;
 
 // --- Global Hardware Interrupt Flags ---
-volatile bool pir_intr = false;
-int pir_intr_count = 0;
-volatile bool photo_intr = false;
-int photo_intr_count = 0;
-volatile bool rf_intr = false;
-int rf_intr_count = 0;
+volatile bool sns_intr_flag[NUM_OF_SENSORS] = {false};
+int sns_intr_count[NUM_OF_SENSORS] = {0};
 
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;

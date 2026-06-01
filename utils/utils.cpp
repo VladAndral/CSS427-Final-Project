@@ -17,21 +17,22 @@ String actionNames[] = {
   "schedule"
 };
 
-String AttributeNames_sensor[]{
+String AttributeNames[]{
   "pollrate",
   "sensitivity",
-  "enable"
-};
-
-String AttributeNames_system[]{
+  "enable",
   "mode"
 };
 
-String AttributeValues_system[]{
+String AttributeValues[]{
+  "trig",
+  "poll",
+  "trigpoll",
   "normal",
   "maintenance",
   "quiet",
-  "lockdown"
+  "lockdown",
+  "custom"
 };
 
 void tokenize(String str, String arr[], int size)
