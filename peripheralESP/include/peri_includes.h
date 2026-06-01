@@ -36,10 +36,6 @@ Green flag sticky is peripheral
 
 #define RF_TOKEN_COUNT 6
 
-volatile bool pirDetected = false;
-volatile bool photoDetected = false;
-volatile bool rfDetected = false;
-
 bool prevDetection = false;
 
 long noiseFloor = 0;
@@ -76,7 +72,7 @@ int clock_minute;
 bool interruptsEnabled = false;
 
 const char *recv_data;
-bool receivedData = false;
+volatile bool receivedData = false;
 
 String rfDataTokens[RF_TOKEN_COUNT] = {""};
 
@@ -88,7 +84,7 @@ struct pir_struct
   uint32_t periodLen_ms;
   int numOfReadingsDuringPeriod;
   uint32_t prevTime;
-  int data;
+  volatile int data;
 };
 
 pir_struct pir;
@@ -101,7 +97,7 @@ struct photo_struct
   int numOfReadingsDuringPeriod;
   int noiseFloor;
   int trigMin;
-  uint16_t data;
+  volatile uint16_t data;
 
   int schedule_hour;
   int schedule_minute;
@@ -119,7 +115,7 @@ struct rf_struct
   int numOfReadingsDuringPeriod;
   int noiseFloor;
   int trigMin;
-  float data;
+  volatile float data;
 
   int schedule_hour;
   int schedule_minute;
@@ -143,9 +139,9 @@ struct system_struct
   int scheduledAttrVal;
 };
 
-bool pir_intr = false;
-bool photo_intr = false;
-bool rf_intr = false;
+volatile bool pir_intr = false;
+volatile bool photo_intr = false;
+volatile bool rf_intr = false;
 
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;

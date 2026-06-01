@@ -12,6 +12,7 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
   receivedData = true;
   memcpy(&msg_from_ctrlr, data, sizeof(msg_from_ctrlr));
+  Serial.println("Got something");
   // should we be checking here the size of the sent vs the recieved data? to make sure we got correct data?
 }
 
@@ -56,6 +57,30 @@ void calibrate_photo()
   trigMin_photo = noiseFloor * 1.2;
   trigMax_photo = noiseFloor * 10;
   sensitivityStep_photo = (trigMax_photo - trigMin_photo)/100;
+}
+
+bool tokenizeRFdata(String &line, String tokenArray[], int numOfTokens)
+{
+  if (tokenArray->length() != numOfTokens) return false;
+
+  int tokenPos = 0;
+  String token = "";
+  for (char curChar : line)
+  {
+    if (curChar == ',')
+    {
+      tokenArray[tokenPos++] = token;
+      token = "";
+    }
+    else
+    {
+      token += curChar;
+    }
+  }
+  
+  tokenArray[tokenPos] = token;
+
+  return true;
 }
 
 /// @brief Updates `rfDataTokens`. Blocking call (waits for RasPi to respond)
@@ -384,30 +409,6 @@ Peri_Msg new_msg_to_ctrlr()
   return toReturn;
 }
 
-bool tokenizeRFdata(String &line, String tokenArray[], int numOfTokens)
-{
-  if (tokenArray->length() != numOfTokens) return false;
-
-  int tokenPos = 0;
-  String token = "";
-  for (char curChar : line)
-  {
-    if (curChar == ',')
-    {
-      tokenArray[tokenPos++] = token;
-      token = "";
-    }
-    else
-    {
-      token += curChar;
-    }
-  }
-  
-  tokenArray[tokenPos] = token;
-
-  return true;
-}
-
 void sendLogMsgToCtrlr(String logMsg)
 {
   const char *logMsgConvert = logMsg.c_str();
@@ -474,6 +475,8 @@ void setup()
   calibrate_rf();
   String rfCalibrateMsg = "HackRF is booted up~";
   sendLogMsgToCtrlr(rfCalibrateMsg);
+
+  receivedData = false;
 }
 
 // have a integer holding the ammount of times per second, if its been 1 second divided on
@@ -505,7 +508,7 @@ void loop()
 
   if (receivedData)
   {
-    Serial.println("Got something");
+    Serial.println("Loop: received data");
     receivedData = false;
     Peri_Msg msg_to_ctrlr_user = new_msg_to_ctrlr();
     if (msg_from_ctrlr.target == TARGET_INVALID)
