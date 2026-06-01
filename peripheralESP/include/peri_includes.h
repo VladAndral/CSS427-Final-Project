@@ -56,11 +56,8 @@ float trigMax_rf;
 int sensitivityStep_photo;
 float sensitivityStep_rf;
 
-const int normalPollPeriod_ms = 50;
+const int normalPollPeriod_ms = 2000;
 const int maintPollPeriod_ms = 1*1000;
-
-long start_time;
-long end_time;
 
 int64_t timeSinceBoot;
 
@@ -78,70 +75,13 @@ String rfDataTokens[RF_TOKEN_COUNT] = {""};
 
 Ctrlr_Msg msg_from_ctrlr;
 
-struct pir_struct
-{
-  bool enabled;
-  uint32_t periodLen_ms;
-  int numOfReadingsDuringPeriod;
-  uint32_t prevTime;
-  volatile int data;
-};
-
-pir_struct pir;
-
-struct photo_struct
-{
-  bool enabled;
-  uint32_t periodLen_ms;
-  uint32_t prevTime;
-  int numOfReadingsDuringPeriod;
-  int noiseFloor;
-  int trigMin;
-  volatile uint16_t data;
-
-  int schedule_hour;
-  int schedule_minute;
-  Attr_Name scheduledAttribute;
-  int scheduledAttrVal;
-};
-
-photo_struct photo;
-
-struct rf_struct
-{
-  bool enabled;
-  uint32_t periodLen_ms;
-  uint32_t prevTime;
-  int numOfReadingsDuringPeriod;
-  int noiseFloor;
-  int trigMin;
-  volatile float data;
-
-  int schedule_hour;
-  int schedule_minute;
-  Attr_Name scheduledAttribute;
-  int scheduledAttrVal;
-};
-
-rf_struct rf;
-
-struct system_struct
-{
-  pir_struct &pir;
-  photo_struct &photo;
-  rf_struct &rf;
-  Attr_Val mode;
-
-  int schedule_hour;
-  int schedule_minute;
-  Attr_Name scheduledAttribute;
-  // Mode can be put into this variable, so it's easier to interpret
-  int scheduledAttrVal;
-};
-
+// --- Global Hardware Interrupt Flags ---
 volatile bool pir_intr = false;
+int pir_intr_count = 0;
 volatile bool photo_intr = false;
+int photo_intr_count = 0;
 volatile bool rf_intr = false;
+int rf_intr_count = 0;
 
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;

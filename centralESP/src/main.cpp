@@ -52,13 +52,15 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
   {
     receivedData = true;
     memcpy(&msg_from_peri, data, sizeof(msg_from_peri));
-    // Serial.println("Gotttt");
+    // Serial.println("Got data");
   }
   else
   {
 
     // // debug
-    // Serial.print("Not Data");
+    Serial.print("Not Data: ");
+    Serial.println(sizeof(Peri_Msg));
+    Serial.println(data_len);
     // If peri sent a string msg
     if (data[data_len - 1] == '~')
     {
@@ -438,16 +440,36 @@ void loop()
     // IF ISR TRIGGERED
     if (msg_from_peri.pir_detected)
     {
-      Serial.println("---------------- URGENT: PIR MOTION DETECTED BY ISR!-------------");
+      Serial.println("----------------PRESENCE DETECTED BY PIR SENSOR-------------");
     }
+    else
+    {
+      Serial.println("----------------NO PRESENCE DETECTED BY PIR-------------");
+    }
+    
+    Serial.printf("----------------PIR WAS TRIPPED %u TIMES-------------\n", msg_from_peri.pir_numOfDetct_inPeriod);
+    
     if (msg_from_peri.photo_detected)
     {
-      Serial.println("---------------- URGENT: PHOTO MOTION DETECTED BY ISR!-------------");
+      Serial.println("----------------MOTION DETECTED BY PHOTODIODE-------------");
     }
+    else
+    {
+      Serial.println("----------------NO MOTION DETECTED BY PHOTODIODE-------------");
+    }
+    
+    Serial.printf("----------------PHOTODIODE WAS TRIPPED %u TIMES-------------\n", msg_from_peri.photo_numOfDetct_inPeriod);
+    
     if (msg_from_peri.rf_detected)
     {
-      Serial.println("---------------- URGENT: RF MOTION DETECTED BY ISR!-------------");
+      Serial.println("----------------NETWORK TRAFFIC DETECTED BY HACKRF-------------");
     }
+    else
+    {
+      Serial.println("----------------NO NETWORK TRAFFIC DETECTED BY HACKRF-------------");
+    }
+    
+    Serial.printf("----------------HACKRF WAS TRIPPED %u TIMES-------------\n", msg_from_peri.rf_numOfDetct_inPeriod);
 
     // waiting for periferal to send get or demand data back.
     if (waitingForReply)

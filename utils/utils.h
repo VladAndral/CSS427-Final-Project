@@ -1,5 +1,7 @@
 #include <WString.h>
 
+#pragma once
+
 // find and replace
 #define PROJ_WIFI_CHANNEL 11
 #define TOK_ARR_SIZE 10
@@ -23,12 +25,10 @@ enum CommandType : int
 };
 
 /*
-    target              action              attributeName               attributeValue
+         target                    action                    attributeName                    attributeValue
 
-    <sensor>      [set/get/schedule]    [pollRate/sensitivity]       <uint> (<uint> <uint>)
-    <sensor>            demand
-    system        [set/get/schedule]  [pollRate/sensitivity/Mode] <Mode> (<uint> <uint> <uint>)
-    system              demand
+    [<sensor>/system]        [set/get/schedule]       [pollRate/sensitivity/Mode]      <Mode> (<uint> <uint> <uint>)
+    [<sensor>/system]              demand
 */
 
 #define NUM_OF_TARGETS TARGET_SENTINEL - 1
@@ -77,17 +77,21 @@ enum Attr_Name : int
   ATTR_NAME_INVALID = 0,
   ATTR_NAME_POLL_FREQ = 1,
   ATTR_NAME_SENSITIVITY = 2,
-  ATTR_NAME_ENABLE_POLL = 3, // newly added for enable and disabling polling of all sensors
-  ATTR_NAME_MODE = 4
+  ATTR_NAME_MODE = 3,
+  ATTR_NAME_SENTINEL = 4
 };
-#define ATTR_VAL_OFFSET_SYS 2
+
+#define ATTR_VAL_OFFSET_SYS 3
 enum Attr_Val : int
 {
   ATTR_VAL_INVALID = 0,
-  ATTR_VAL_SYS_NORMAL = 1,
-  ATTR_VAL_SYS_MAINT = 2,
-  ATTR_VAL_SYS_QUIET = 3,
-  ATTR_VAL_SYS_LOCKDOWN = 4
+  ATTR_VAL_SNS_TRIG = 1,
+  ATTR_VAL_SNS_POLL = 2,
+  ATTR_VAL_SNS_TRIGPOLL = 3,
+  ATTR_VAL_SYS_NORMAL = 4,
+  ATTR_VAL_SYS_MAINT = 5,
+  ATTR_VAL_SYS_QUIET = 6,
+  ATTR_VAL_SYS_LOCKDOWN = 7
 };
 
 /*
@@ -138,13 +142,21 @@ struct __attribute__((packed)) Peri_Msg
   bool photo;
   bool rf;
 
-  int pir_data;
+  int getResult;
+
   int readingType;
+
+  bool pir_enabled;
+  int pir_data;
   bool pir_detected;
   int pir_numOfDetct_inPeriod;
+
+  bool photo_enabled;
+  int photo_data;
   bool photo_detected;
   int photo_numOfDetct_inPeriod;
-  int photo_data;
+  
+  bool rf_enabled;
   bool rf_detected;
   int rf_numOfDetct_inPeriod;
   int rf_data;

@@ -1,12 +1,33 @@
-/*
- * "THE BEER-WARE LICENSE" (Revision 42):
- * regenbogencode@gmail.com wrote this file. As long as you retain this notice
- * you can do whatever you want with this stuff. If we meet some day, and you
- * think this stuff is worth it, you can buy me a beer in return
- */
-
 #include "peri_includes.h"
+#include "PIR.h"
+#include "Photo.h"
+#include "RF.h"
+#include "SensorSystem.h"
 
+// ISRs (Kept in IRAM)
+void IRAM_ATTR pir_ISR() { pir_intr = true; }
+void IRAM_ATTR photo_ISR() { photo_intr = true; }
+void IRAM_ATTR rf_ISR() { rf_intr = true; }
+
+// --- Sensor Instantiation & Array ---
+PIR pirSensor(PIR_BOARD_PIN, &pir_intr);
+Photo photoSensor(PHOTO_BOARD_PIN, &photo_intr);
+RF rfSensor(RF_BOARD_PIN, &rf_intr);
+
+// We size to NUM_OF_TARGETS + 1 so the enums (1 = PIR, 2 = Photo, 3 = RF) match the indices perfectly
+SensorBase *sensorArr[NUM_OF_TARGETS + 1] = {
+  nullptr,
+  &pirSensor,
+  &photoSensor,
+  &rfSensor,
+  nullptr
+};
+
+SensorSystem systemSensor(pirSensor, photoSensor, rfSensor);
+/**********************************
+    MESSAGING
+**********************************/
+// ... [Keep your ESP-NOW onRecv, onDataSent, and sendMsgStructToController functions here] ...
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
@@ -23,390 +44,9 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void IRAM_ATTR pir_ISR()
-{
-  pir_intr = true;
-  pir.data = digitalRead(PIR_BOARD_PIN);
-}
-
-void IRAM_ATTR photo_ISR()
-{
-  photo_intr = true;
-  photo.data = digitalRead(PHOTO_BOARD_PIN);
-}
-
-void IRAM_ATTR rf_ISR()
-{
-  rf_intr = true;
-  // If HIGH, traffic detected
-  // If LOW, no traffic detected
-}
-
-void calibrate_photo()
-{
-  long count = 0;
-  long reading = 0;
-
-  while (end_time - start_time <= 2000)
-  {
-    reading += analogRead(PHOTO_BOARD_PIN);
-    count++;
-    end_time = millis();
-  }
-  long noiseFloor = reading / count;
-  trigMin_photo = noiseFloor * 1.2;
-  trigMax_photo = noiseFloor * 10;
-  sensitivityStep_photo = (trigMax_photo - trigMin_photo)/100;
-}
-
-bool tokenizeRFdata(String &line, String tokenArray[], int numOfTokens)
-{
-  if (tokenArray->length() != numOfTokens) return false;
-
-  int tokenPos = 0;
-  String token = "";
-  for (char curChar : line)
-  {
-    if (curChar == ',')
-    {
-      tokenArray[tokenPos++] = token;
-      token = "";
-    }
-    else
-    {
-      token += curChar;
-    }
-  }
-  
-  tokenArray[tokenPos] = token;
-
-  return true;
-}
-
-/// @brief Updates `rfDataTokens`. Blocking call (waits for RasPi to respond)
-void rf_updateTokens()
-{
-  // Ask for reading
-  Serial2.write("reading");
-
-  // Wait for buffer to fill
-  while (!Serial2.available()) {}
- 
-  String rfData = Serial2.readStringUntil('~');
-  // Clear rest of buffer
-  while (Serial2.available()) Serial2.read();
-  
-  // // debug
-  // Serial.print("ESP32: I received your message: ");
-  // Serial.println(rfData);
-
-  tokenizeRFdata(rfData, rfDataTokens, RF_TOKEN_COUNT);
-}
-
-/// @brief Returns an average reading from HackRF. Blocking call (waits for response from RasPi)
-/// @return Average decible power reading
-float rf_getRawAvgReading()
-{
-  rf_updateTokens();
-
-  float readingSum = 0;
-
-  for (int i = 1; i < (rfDataTokens->length()-1); i++)
-  {
-    readingSum += rfDataTokens[i].toFloat();
-  }
-
-  return readingSum / (rfDataTokens->length()-1);
-}
-
-/// @brief Updates `clock_hour` and `clock_min`. Blocking call (waits for RasPi to respond)
-void update_clock()
-{
-
-  rf_updateTokens();
-
-  clock_hour = rfDataTokens[0].substring(0,2).toInt();
-  clock_minute = rfDataTokens[0].substring(2).toInt();
-}
-
-void calibrate_rf()
-{
-  long count = 0;
-  float reading = 0;
-
-  while (end_time - start_time <= 2000)
-  {
-    reading += rf_getRawAvgReading();
-    count++;
-    end_time = millis();
-  }
-
-  float noiseFloor = reading / count;
-  trigMin_rf = noiseFloor * 1.2;
-  trigMax_rf = noiseFloor * 10;
-  sensitivityStep_rf = (trigMax_rf - trigMin_rf)/100;
-}
-
-bool readPhoto()
-{
-  uint16_t toStore = analogRead(PHOTO_BOARD_PIN);
-  // How we enter critical sections. Do not use cli() or sei()
-  portENTER_CRITICAL(&mux);
-  photo.data = toStore;
-  portEXIT_CRITICAL(&mux);
-  return true;
-}
-
-bool readPIR()
-{
-  int toStore = digitalRead(PIR_BOARD_PIN);
-  portENTER_CRITICAL(&mux);
-  pir.data = toStore;
-  portEXIT_CRITICAL(&mux);
-  return true;
-}
-
-bool readRF()
-{
-  rf.data = rf_getRawAvgReading();
-
-  return true;
-}
-
-bool readAllSensors()
-{
-  return readPhoto() && readPIR() && readRF();
-}
-
 void sendMsgStructToController(Peri_Msg &msg_to_ctrlr)
 {
   ESPNow.send_message(controller_mac, (uint8_t *)&msg_to_ctrlr, sizeof(msg_to_ctrlr));
-}
-
-bool cmd_demand(Peri_Msg &msg_to_ctrlr)
-{
-  bool success = readSensor[msg_from_ctrlr.target]();
-
-  if (success)
-  {
-    msg_to_ctrlr.readingType = READING_DEMAND; // Mark as on-demand report
-
-    if (msg_from_ctrlr.target == SENSOR_PIR)
-    {
-      msg_to_ctrlr.pir_data = pir.data;
-    }
-    else if (msg_from_ctrlr.target == SENSOR_PHOTO)
-    {
-      msg_to_ctrlr.photo_data = photo.data;
-    }
-    else if (msg_from_ctrlr.target == SENSOR_RF)
-    {
-      msg_to_ctrlr.rf_data = rf.data;
-    }
-    else if (msg_from_ctrlr.target == TARGET_SYSTEM)
-    {
-      // Pack all data for a system-wide demand
-      msg_to_ctrlr.pir_data = pir.data;
-      msg_to_ctrlr.photo_data = photo.data;
-      msg_to_ctrlr.rf_data = rf.data;
-    }
-  }
-  return success;
-}
-
-bool cmd_set(Peri_Msg &msg_to_ctrlr)
-{
-  if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
-  {
-    msg_to_ctrlr.recv_msg_error = true;
-    return false;
-  }
-
-  // --- PIR SENSOR ---
-  if (msg_from_ctrlr.target == SENSOR_PIR)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      pir.periodLen_ms = msg_from_ctrlr.val1;
-      return true;
-    }
-    return false;
-  }
-  // --- PHOTO SENSOR ---
-  else if (msg_from_ctrlr.target == SENSOR_PHOTO)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      photo.periodLen_ms = msg_from_ctrlr.val1;
-      return true;
-    }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
-    {
-      photo.trigMin = trigMin_photo + msg_from_ctrlr.val1;
-      return true;
-    }
-    return false;
-  }
-  // --- RF SENSOR ---
-  else if (msg_from_ctrlr.target == SENSOR_RF)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      rf.periodLen_ms = msg_from_ctrlr.val1;
-      return true;
-    }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
-    {
-      rf.trigMin = trigMin_rf - msg_from_ctrlr.val1;
-      return true;
-    }
-    return false;
-  }
-  // --- TARGET SYSTEM ---
-  else if (msg_from_ctrlr.target == TARGET_SYSTEM)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      // Change all poll freq for all sensors
-      pir.periodLen_ms = msg_from_ctrlr.val1;
-      photo.periodLen_ms = msg_from_ctrlr.val1;
-      rf.periodLen_ms = msg_from_ctrlr.val1;
-      return true;
-    }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
-    {
-      // PIR NOT POSSIBLE
-      photo.trigMin = trigMin_photo - msg_from_ctrlr.val1;
-      rf.trigMin = trigMin_rf - msg_from_ctrlr.val1;
-      return true;
-    }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
-    {
-      if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_NORMAL)
-      {
-        pir.enabled = photo.enabled = rf.enabled = true;
-        pir.periodLen_ms = photo.periodLen_ms = rf.periodLen_ms = normalPollPeriod_ms;
-      }
-      else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_MAINT)
-      {
-        pir.enabled = false;
-        photo.enabled = false;
-        rf.enabled = true;
-        rf.periodLen_ms = maintPollPeriod_ms;
-      }
-      else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_QUIET)
-      {
-        pir.enabled = photo.enabled = rf.enabled = true;
-        pir.periodLen_ms = photo.periodLen_ms = rf.periodLen_ms = normalPollPeriod_ms;
-        photo.trigMin = trigMin_photo;
-        rf.trigMin = trigMin_rf;
-      }
-      else if (msg_from_ctrlr.attr_val == ATTR_VAL_SYS_LOCKDOWN)
-      {
-        pir.enabled = photo.enabled = rf.enabled = false;
-        interruptsEnabled = true;
-      }
-      return true;
-    }
-    return false;
-  }
-
-  return false;
-}
-
-bool cmd_get(Peri_Msg &msg_to_ctrlr)
-{
-  if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
-  {
-    msg_to_ctrlr.recv_msg_error = true;
-    return false;
-  }
-
-  // --- PIR SENSOR ---
-  if (msg_from_ctrlr.target == SENSOR_PIR)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      // UNCOMMENT THIS once you add 'int pir_data;' to your utils.h struct!
-      msg_to_ctrlr.pir_data = pir.periodLen_ms;
-      return true;
-    }
-  }
-  // --- PHOTO SENSOR ---
-  else if (msg_from_ctrlr.target == SENSOR_PHOTO)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      msg_to_ctrlr.photo_data = photo.periodLen_ms;
-      return true;
-    }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
-    {
-      msg_to_ctrlr.photo_data = photo.trigMin;
-      return true;
-    }
-  }
-  // --- RF SENSOR ---
-  else if (msg_from_ctrlr.target == SENSOR_RF)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      msg_to_ctrlr.rf_data = rf.periodLen_ms;
-      return true;
-    }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
-    {
-      msg_to_ctrlr.rf_data = rf.trigMin;
-      return true;
-    }
-  }
-  // --- TARGET SYSTEM ---
-  else if (msg_from_ctrlr.target == TARGET_SYSTEM)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      // Return all three poll rates
-      msg_to_ctrlr.pir_data = pir.periodLen_ms; // Uncomment when added to struct
-      msg_to_ctrlr.photo_data = photo.periodLen_ms;
-      msg_to_ctrlr.rf_data = rf.periodLen_ms;
-      return true;
-    }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
-    {
-      // Send back the two relevant sensitivities
-      msg_to_ctrlr.photo_data = photo.trigMin;
-      msg_to_ctrlr.rf_data = rf.trigMin;
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
-{
-
-  return false;
-}
-
-Peri_Msg new_msg_to_ctrlr()
-{
-  Peri_Msg toReturn;
-  toReturn.pir = false;
-  toReturn.photo = false;
-  toReturn.rf = false;
-  toReturn.recv_msg_error = true;
-  toReturn.readingType = 0;
-  toReturn.pir_detected = false;
-  toReturn.pir_numOfDetct_inPeriod = 0;
-  toReturn.photo_detected = false;
-  toReturn.photo_numOfDetct_inPeriod = 0;
-  toReturn.photo_data = 0;
-  toReturn.rf_detected = false;
-  toReturn.rf_numOfDetct_inPeriod = 0;
-  toReturn.rf_data = 0;
-
-  return toReturn;
 }
 
 void sendLogMsgToCtrlr(String logMsg)
@@ -415,9 +55,132 @@ void sendLogMsgToCtrlr(String logMsg)
   ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
 }
 
-/****************************
-    SETUP AND MAIN LOOP
-*****************************/
+Peri_Msg new_msg_to_ctrlr()
+{
+  // {0} guarantees every single bit in the struct is safely zeroed out
+  Peri_Msg toReturn = {0}; 
+  
+  // Set only the specific fields that shouldn't be 0
+  toReturn.recv_msg_error = true;
+
+  return toReturn;
+}
+/**********************************
+    COMMANDS
+**********************************/
+bool cmd_demand(Peri_Msg &msg_to_ctrlr)
+{
+  Target target = msg_from_ctrlr.target;
+  msg_to_ctrlr.readingType = READING_DEMAND;
+
+  if (target >= SENSOR_PIR && target <= SENSOR_RF)
+  {
+    float val = sensorArr[target]->getReading();
+    if (target == SENSOR_PIR)
+      msg_to_ctrlr.pir_data = (int)val;
+    if (target == SENSOR_PHOTO)
+      msg_to_ctrlr.photo_data = (int)val;
+    if (target == SENSOR_RF)
+      msg_to_ctrlr.rf_data = (int)val;
+    return true;
+  }
+  else if (target == TARGET_SYSTEM)
+  {
+    // System demand iterates over everything
+    msg_to_ctrlr.pir_data = (int)sensorArr[SENSOR_PIR]->getReading();
+    msg_to_ctrlr.photo_data = (int)sensorArr[SENSOR_PHOTO]->getReading();
+    msg_to_ctrlr.rf_data = (int)sensorArr[SENSOR_RF]->getReading();
+    return true;
+  }
+  return false;
+}
+
+bool cmd_set(Peri_Msg &msg_to_ctrlr)
+{
+  if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+    return false;
+  Target target = msg_from_ctrlr.target;
+
+  if (target >= SENSOR_PIR && target <= SENSOR_RF)
+  {
+    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+    {
+      sensorArr[target]->setPollPeriod(msg_from_ctrlr.val1);
+      return true;
+    }
+    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY && sensorArr[target]->isSensitivityAdjustable())
+    {
+      sensorArr[target]->setSensitivity(msg_from_ctrlr.val1);
+      return true;
+    }
+  }
+  else if (target == TARGET_SYSTEM)
+  {
+    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+    {
+      for (int i = 1; i <= 3; i++)
+        sensorArr[i]->setPollPeriod(msg_from_ctrlr.val1);
+      return true;
+    }
+    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
+    {
+      for (int i = 1; i <= 3; i++)
+        sensorArr[i]->setSensitivity(msg_from_ctrlr.val1);
+      return true;
+    }
+    else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
+    {
+      // TODO:
+      // Handle system modes (Normal, Maint, Lockdown) here using your existing logic
+      return true;
+    }
+  }
+  return false;
+}
+
+// TODO:
+// ... [Keep cmd_get and cmd_schedule similarly flattened] ...
+bool cmd_get(Peri_Msg &msg_to_ctrlr)
+{
+  if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+    return false;
+  Target target = msg_from_ctrlr.target;
+
+  if (target >= SENSOR_PIR && target <= SENSOR_RF)
+  {
+    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+    {
+      msg_to_ctrlr.getResult = sensorArr[target]->getPollPeriod();
+      return true;
+    }
+    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY && sensorArr[target]->isSensitivityAdjustable())
+    {
+      msg_to_ctrlr.getResult =  sensorArr[target]->getSensitivity();
+      return true;
+    }
+  }
+  else if (target == TARGET_SYSTEM)
+  {
+    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+    {
+      // TODO:
+      return true;
+    }
+    else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
+    {
+      // TODO:
+      // Handle system modes (Normal, Maint, Lockdown) here using your existing logic
+      return true;
+    }
+  }
+  return false;
+}
+
+// TODO:
+bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
+{
+  return false;
+}
 
 void setup()
 {
@@ -438,121 +201,113 @@ void setup()
   // Register callback functions
   ESPNow.reg_send_cb(onDataSent);
   ESPNow.reg_recv_cb(onRecv);
-  // PIR stuff
-  pinMode(PIR_BOARD_PIN, INPUT_PULLDOWN);
+  
+  sensorArr[SENSOR_PIR]->setPollPeriod(2000);
+  sensorArr[SENSOR_PHOTO]->setPollPeriod(2000);
+  sensorArr[SENSOR_RF]->setPollPeriod(2000);
+
+  pinMode(PIR_BOARD_PIN, INPUT);
+  pinMode(PHOTO_BOARD_PIN, INPUT_PULLDOWN);
+  pinMode(RF_BOARD_PIN, INPUT_PULLDOWN);
 
   attachInterrupt(digitalPinToInterrupt(PIR_BOARD_PIN), pir_ISR, RISING);
   attachInterrupt(digitalPinToInterrupt(PHOTO_BOARD_PIN), photo_ISR, RISING);
   attachInterrupt(digitalPinToInterrupt(RF_BOARD_PIN), rf_ISR, CHANGE);
 
-  String timeLoggingMsg = "Peripheral is booted up~";
-  sendLogMsgToCtrlr(timeLoggingMsg);
 
-  readSensor[SENSOR_PIR] = readPIR;
-  readSensor[SENSOR_PHOTO] = readPhoto;
-  readSensor[SENSOR_RF] = readRF;
-  readSensor[TARGET_SYSTEM] = readAllSensors;
-
-  // TODO: Have command return bool if it executed properly
-  executeAction[ACTION_INVALID] = emptyEA;
   executeAction[ACTION_DEMAND] = cmd_demand;
   executeAction[ACTION_SET] = cmd_set;
-  executeAction[ACTION_GET] = cmd_get;
-  executeAction[ACTION_SCHEDULE] = cmd_schedule;
 
-  pir.prevTime = 0;
-  photo.prevTime = 0;
-  rf.prevTime = 0;
+  sendLogMsgToCtrlr("Peripheral is booted up~");
 
-  pir.enabled = true;
-  photo.enabled = true;
-  rf.enabled = true;
+  // Calibrate objects
+  sensorArr[SENSOR_PHOTO]->calibrate();
+  sendLogMsgToCtrlr("Photodiode sensor is booted up~");
 
-  calibrate_photo();
-  String photoCalibrateMsg = "Photodiode sensor is booted up~";
-  sendLogMsgToCtrlr(photoCalibrateMsg);
-  
-  calibrate_rf();
-  String rfCalibrateMsg = "HackRF is booted up~";
-  sendLogMsgToCtrlr(rfCalibrateMsg);
-
-  receivedData = false;
+  if (sensorArr[SENSOR_RF]->calibrate())
+  {
+    sendLogMsgToCtrlr("HackRF is booted up~");
+  }
+  else
+  {
+    sendLogMsgToCtrlr("ERROR: HackRF is NOT booted up.~");
+    sensorArr[SENSOR_RF]->setEnabled(false);
+  }
 }
 
-// have a integer holding the ammount of times per second, if its been 1 second divided on
+/*
+  TODO:
+  - Have RasPi trigger interrupt each time minute changes
+  - Have set update system variable that tracks if system mode is set or user custom
+  - Both this and controller: set sensor mode to poll and/or trig
+
+*/
 void loop()
 {
-  /*
-      RasPi UART communication
-  */
- update_clock();
-
+  // UART relay to RasPi
   if (Serial.available())
   {
-    String userInput = Serial.readStringUntil('\n');
+    String userInput = Serial.readStringUntil('\n'); // Cleaned up hidden char bug
     userInput.trim();
-
     if (userInput.length())
     {
-      userInput.toLowerCase();
-      Serial.print("User message to pi:");
-      Serial.println(userInput);
-
-      userInput += '~';
-      Serial2.print(userInput);
+      Serial2.print(userInput + "~");
     }
-
-    while (Serial.available())
-      Serial.read();
   }
 
+  bool pir_tripped = sensorArr[SENSOR_PIR]->checkAndClearInterrupt();
+  bool photo_tripped = sensorArr[SENSOR_PHOTO]->checkAndClearInterrupt();
+  bool rf_tripped = sensorArr[SENSOR_RF]->checkAndClearInterrupt();
+
+  if (pir_tripped) { pir_intr_count++; Serial.println("tripped"); }
+  if (photo_tripped) photo_intr_count++;
+  if (rf_tripped) rf_intr_count++;
+
+  // Process Incoming Controller Messages
   if (receivedData)
   {
-    Serial.println("Loop: received data");
     receivedData = false;
     Peri_Msg msg_to_ctrlr_user = new_msg_to_ctrlr();
-    if (msg_from_ctrlr.target == TARGET_INVALID)
-    {
-      Serial.println("Target error");
-      msg_to_ctrlr_user.recv_msg_error = true;
-    }
-    else
-    {
-      Serial.println(msg_from_ctrlr.action);
-      bool cmdExecuted = executeAction[msg_from_ctrlr.action](msg_to_ctrlr_user);
 
-      Serial.println(cmdExecuted);
-      msg_to_ctrlr_user.recv_msg_error = !cmdExecuted;
+    if (msg_from_ctrlr.target != TARGET_INVALID)
+    {
+      msg_to_ctrlr_user.recv_msg_error = !executeAction[msg_from_ctrlr.action](msg_to_ctrlr_user);
     }
     sendMsgStructToController(msg_to_ctrlr_user);
   }
 
+  // --- Object-Oriented Polling Logic ---
   Peri_Msg msg_to_ctrlr_polling = new_msg_to_ctrlr();
-  curTime = millis();
+  msg_to_ctrlr_polling.recv_msg_error = false;
+  uint32_t curTime = millis();
   bool gotReading = false;
+  float readingVal = 0;
 
-  if (pir.enabled && (curTime - pir.prevTime) >= pir.periodLen_ms)
+  // A single loop handles all sensors dynamically!
+  for (int i = 1; i <= NUM_OF_SENSORS; i++)
   {
+    if (sensorArr[i]->poll(curTime, readingVal))
+    {
       gotReading = true;
-      readPIR();
-      msg_to_ctrlr_polling.pir_data = pir.data;
-      pir.prevTime = curTime;
-  }
-
-  if (photo.enabled && (curTime - photo.prevTime) >= photo.periodLen_ms)
-  {
-      gotReading = true;
-      readPhoto();
-      msg_to_ctrlr_polling.photo_data = photo.data;
-      photo.prevTime = curTime;
-  }
-
-  if (rf.enabled && (curTime - rf.prevTime) >= rf.periodLen_ms)
-  {
-      gotReading = true;
-      readRF();
-      msg_to_ctrlr_polling.rf_data = rf.data;
-      rf.prevTime = curTime;
+      if (i == SENSOR_PIR)
+      {
+        msg_to_ctrlr_polling.pir_data = (int)readingVal;
+        msg_to_ctrlr_polling.pir_numOfDetct_inPeriod = pir_intr_count;
+        pir_intr_count = 0;
+      }
+      if (i == SENSOR_PHOTO)
+      {
+        msg_to_ctrlr_polling.photo_data = (int)readingVal;
+        msg_to_ctrlr_polling.photo_numOfDetct_inPeriod = photo_intr_count;
+        photo_intr_count = 0;
+      }
+      if (i == SENSOR_RF)
+      {
+        msg_to_ctrlr_polling.rf_data = (int)readingVal;
+        msg_to_ctrlr_polling.rf_numOfDetct_inPeriod = rf_intr_count;
+        rf_intr_count = 0;
+      }
+    }
   }
 
   if (gotReading)
@@ -561,17 +316,28 @@ void loop()
     sendMsgStructToController(msg_to_ctrlr_polling);
   }
 
+  // --- Hardware Interrupt Check ---
   if (interruptsEnabled)
   {
     Peri_Msg msg_to_ctrlr_intr = new_msg_to_ctrlr();
-    bool anyDetection = false;
-    
-    if (pir_intr) msg_to_ctrlr_intr.pir_detected = anyDetection = true;
-    if (photo_intr) msg_to_ctrlr_intr.photo_detected = anyDetection = true;
-    if (rf_intr) msg_to_ctrlr_intr.pir_detected = anyDetection = true;
-
     msg_to_ctrlr_intr.recv_msg_error = false;
+    bool anyDetection = false;
 
-    if (anyDetection) sendMsgStructToController(msg_to_ctrlr_intr);
+    // Use the boolean states saved at the top of the loop!
+    if (pir_tripped)
+    {
+      msg_to_ctrlr_intr.pir_detected = anyDetection = true;
+    }
+    if (photo_tripped)
+    {
+      msg_to_ctrlr_intr.photo_detected = anyDetection = true;
+    }
+    if (rf_tripped)
+    {
+      msg_to_ctrlr_intr.rf_detected = anyDetection = true;
+    }
+
+    if (anyDetection)
+      sendMsgStructToController(msg_to_ctrlr_intr);
   }
 }
