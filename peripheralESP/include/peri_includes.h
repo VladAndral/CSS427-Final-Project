@@ -50,15 +50,15 @@ int photoData;
 
 // Should not be const b/c trigMin depends on calibrated noise floor
 int trigMin_photo = 100;
-int trigMin_rf = 100;
+float trigMin_rf = 100;
 
 /*
   Set when calibrate methods are called
 */
 int trigMax_photo;
-int trigMax_rf;
+float trigMax_rf;
 int sensitivityStep_photo;
-int sensitivityStep_rf;
+float sensitivityStep_rf;
 
 const int normalPollPeriod_ms = 50;
 const int maintPollPeriod_ms = 1*1000;

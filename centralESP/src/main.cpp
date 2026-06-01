@@ -46,24 +46,28 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-// void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
-// {
-//     // if it could be a string, print as one
-//     if (data[data_len - 1] == '~')
-//     {
-//         // Serial.printf("%s\n", data);
-//         for (int i = 0; i < data_len - 1; i++)
-//         {
-//             Serial.printf("%c", data[i]);
-//         }
-//         Serial.println("");
-//     }
-//     // // additionally print as hex
-//     // Serial.print("Data in hex: ");
-//     // for (int i = 0; i < data_len; i++) Serial.printf("0x%x ", data[i]);
-//     Serial.println("");
-// }
+void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+{
+  if (data_len == sizeof(Peri_Msg))
+  {
+    receivedData = true;
+    memcpy(&msg_from_peri, data, sizeof(msg_from_peri));
+    // Serial.println("Gotttt");
+  }
+  else
+  {
 
+    // // debug
+    // Serial.print("Not Data");
+    // If peri sent a string msg
+    if (data[data_len - 1] == '~')
+    {
+      for (int i = 0; i < data_len - 1; i++)
+        Serial.printf("%c", data[i]);
+      Serial.println("");
+    }
+  }
+}
 /*
     Set every field of message to invalid
 */
@@ -318,28 +322,7 @@ Target expectedTarget = TARGET_INVALID;
 Attr_Name expectedAttr = ATTR_NAME_INVALID;
 bool waitingForReply = false;
 
-void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
-{
-  if (data_len == sizeof(Peri_Msg))
-  {
-    receivedData = true;
-    memcpy(&msg_from_peri, data, sizeof(msg_from_peri));
-    // Serial.println("Gotttt");
-  }
-  else
-  {
-    // Serial.println("Notttt");
-    Serial.println(data_len);
-    Serial.println(sizeof(Peri_Msg));
-    // Debugging
-    if (data[data_len - 1] == '~')
-    {
-      for (int i = 0; i < data_len - 1; i++)
-        Serial.printf("%c", data[i]);
-      Serial.println("");
-    }
-  }
-}
+
 
 /****************************
     SETUP AND MAIN LOOP
@@ -453,15 +436,15 @@ void loop()
       return;
     }
     // IF ISR TRIGGERED
-    if (msg_from_peri.PIR_detected)
+    if (msg_from_peri.pir_detected)
     {
       Serial.println("---------------- URGENT: PIR MOTION DETECTED BY ISR!-------------");
     }
-    if (msg_from_peri.Photo_detected)
+    if (msg_from_peri.photo_detected)
     {
       Serial.println("---------------- URGENT: PHOTO MOTION DETECTED BY ISR!-------------");
     }
-    if (msg_from_peri.RF_detected)
+    if (msg_from_peri.rf_detected)
     {
       Serial.println("---------------- URGENT: RF MOTION DETECTED BY ISR!-------------");
     }
@@ -475,11 +458,11 @@ void loop()
       {
         Serial.print("\n[ON-DEMAND REPORT] -> ");
         if (expectedTarget == SENSOR_PIR)
-          Serial.printf("PIR Current Value: %d\n", msg_from_peri.PIR_data);
+          Serial.printf("PIR Current Value: %d\n", msg_from_peri.pir_data);
         if (expectedTarget == SENSOR_PHOTO)
-          Serial.printf("Photo Current Value: %d\n", msg_from_peri.Photo_data);
+          Serial.printf("Photo Current Value: %d\n", msg_from_peri.photo_data);
         if (expectedTarget == SENSOR_RF)
-          Serial.printf("RF Current Value: %d\n", msg_from_peri.RF_data);
+          Serial.printf("RF Current Value: %d\n", msg_from_peri.rf_data);
       }
 
       // for get BLANK requests
@@ -487,9 +470,9 @@ void loop()
       {
         Serial.print("\n[SETTINGS REPORT] -> ");
         if (expectedTarget == SENSOR_PIR && expectedAttr == ATTR_NAME_POLL_FREQ)
-          Serial.printf("PIR Poll Frequency: %d ms\n", msg_from_peri.PIR_data);
+          Serial.printf("PIR Poll Frequency: %d ms\n", msg_from_peri.pir_data);
         else if (expectedTarget == SENSOR_PHOTO && expectedAttr == ATTR_NAME_POLL_FREQ)
-          Serial.printf("Photo Poll Frequency: %d ms\n", msg_from_peri.Photo_data);
+          Serial.printf("Photo Poll Frequency: %d ms\n", msg_from_peri.photo_data);
         // still need to add other combinations of get BLANK
       }
 

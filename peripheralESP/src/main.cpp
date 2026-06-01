@@ -41,7 +41,7 @@ void IRAM_ATTR rf_ISR()
   // If LOW, no traffic detected
 }
 
-void calibratePhoto()
+void calibrate_photo()
 {
   long count = 0;
   long reading = 0;
@@ -58,12 +58,70 @@ void calibratePhoto()
   sensitivityStep_photo = (trigMax_photo - trigMin_photo)/100;
 }
 
-// TODO:
-void calibrateRF()
+/// @brief Updates `rfDataTokens`. Blocking call (waits for RasPi to respond)
+void rf_updateTokens()
 {
+  // Ask for reading
+  Serial2.write("reading");
+
+  // Wait for buffer to fill
+  while (!Serial2.available()) {}
+ 
+  String rfData = Serial2.readStringUntil('~');
+  // Clear rest of buffer
+  while (Serial2.available()) Serial2.read();
+  
+  // // debug
+  // Serial.print("ESP32: I received your message: ");
+  // Serial.println(rfData);
+
+  tokenizeRFdata(rfData, rfDataTokens, RF_TOKEN_COUNT);
 }
 
-// TODO: Restructure read functions to only read; they shouldn't care about msg
+/// @brief Returns an average reading from HackRF. Blocking call (waits for response from RasPi)
+/// @return Average decible power reading
+float rf_getRawAvgReading()
+{
+  rf_updateTokens();
+
+  float readingSum = 0;
+
+  for (int i = 1; i < (rfDataTokens->length()-1); i++)
+  {
+    readingSum += rfDataTokens[i].toFloat();
+  }
+
+  return readingSum / (rfDataTokens->length()-1);
+}
+
+/// @brief Updates `clock_hour` and `clock_min`. Blocking call (waits for RasPi to respond)
+void update_clock()
+{
+
+  rf_updateTokens();
+
+  clock_hour = rfDataTokens[0].substring(0,2).toInt();
+  clock_minute = rfDataTokens[0].substring(2).toInt();
+}
+
+void calibrate_rf()
+{
+  long count = 0;
+  float reading = 0;
+
+  while (end_time - start_time <= 2000)
+  {
+    reading += rf_getRawAvgReading();
+    count++;
+    end_time = millis();
+  }
+
+  float noiseFloor = reading / count;
+  trigMin_rf = noiseFloor * 1.2;
+  trigMax_rf = noiseFloor * 10;
+  sensitivityStep_rf = (trigMax_rf - trigMin_rf)/100;
+}
+
 bool readPhoto()
 {
   uint16_t toStore = analogRead(PHOTO_BOARD_PIN);
@@ -85,15 +143,7 @@ bool readPIR()
 
 bool readRF()
 {
-  float readingSum = 0;
-
-  for (int i = 1; i < rfDataTokens->length()-1; i++)
-  {
-    readingSum += rfDataTokens[i].toFloat();
-  }
-
-  float avgReading = readingSum / rfDataTokens->length()-1;
-  rf.data = avgReading;
+  rf.data = rf_getRawAvgReading();
 
   return true;
 }
@@ -358,10 +408,11 @@ bool tokenizeRFdata(String &line, String tokenArray[], int numOfTokens)
   return true;
 }
 
-
-
-
-
+void sendLogMsgToCtrlr(String logMsg)
+{
+  const char *logMsgConvert = logMsg.c_str();
+  ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
+}
 
 /****************************
     SETUP AND MAIN LOOP
@@ -393,9 +444,8 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(PHOTO_BOARD_PIN), photo_ISR, RISING);
   attachInterrupt(digitalPinToInterrupt(RF_BOARD_PIN), rf_ISR, CHANGE);
 
-  String timeLoggingMsg = "Times shown are relative to system bootup~";
-  const char *logMsgConvert = timeLoggingMsg.c_str();
-  ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
+  String timeLoggingMsg = "Peripheral is booted up~";
+  sendLogMsgToCtrlr(timeLoggingMsg);
 
   readSensor[SENSOR_PIR] = readPIR;
   readSensor[SENSOR_PHOTO] = readPhoto;
@@ -416,6 +466,14 @@ void setup()
   pir.enabled = true;
   photo.enabled = true;
   rf.enabled = true;
+
+  calibrate_photo();
+  String photoCalibrateMsg = "Photodiode sensor is booted up~";
+  sendLogMsgToCtrlr(photoCalibrateMsg);
+  
+  calibrate_rf();
+  String rfCalibrateMsg = "HackRF is booted up~";
+  sendLogMsgToCtrlr(rfCalibrateMsg);
 }
 
 // have a integer holding the ammount of times per second, if its been 1 second divided on
@@ -424,23 +482,7 @@ void loop()
   /*
       RasPi UART communication
   */
-  Serial2.write("reading");
-
-  if (Serial2.available())
-  {
-    String rfData = Serial2.readStringUntil('~');
-    // Clear rest of buffer
-    while (Serial2.available())
-      Serial2.read();
-    
-    Serial.print("ESP32: I received your message: ");
-    Serial.println(rfData);
-
-    tokenizeRFdata(rfData, rfDataTokens, RF_TOKEN_COUNT);
-
-    clock_hour = rfDataTokens[0].substring(0,2).toInt();
-    clock_minute = rfDataTokens[1].substring(2).toInt();
-  }
+ update_clock();
 
   if (Serial.available())
   {
