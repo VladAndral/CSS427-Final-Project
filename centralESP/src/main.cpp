@@ -447,6 +447,15 @@ void loop()
       return;
     }
 
+    /*
+      TODO:
+        - Modify trigpoll to be poll and trig seperately; trigpoll modes should go through both
+          - If only trig, do not print numOfDetectInPeriod[] b/c interrupts are sent instantly
+        - Get: pollRate and sensitivity is stored in sensorData[]; MODE is as well, but need to do
+          extra interpretation from enum to string
+        
+    */
+
     // if Sensor DEMAND
     if (msg_from_peri.readingType == READING_DEMAND)
     {
@@ -470,7 +479,7 @@ void loop()
         
         if (msg_from_peri.sensorData[i] != -1)
         {
-          String sensorName = getSensorName((Target)i);
+          const char *sensorName = getSensorName((Target)i).c_str();
           if (msg_from_peri.sensorDetected[i])
           {
             Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------", sensorName);
