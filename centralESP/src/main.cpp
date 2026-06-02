@@ -134,8 +134,18 @@ Attr_Name getAttrName(String parameter, Target target)
 {
   if (parameter.isEmpty())
     return ATTR_NAME_INVALID;
-
-    // TODO: All targets should be able to do all attributes
+//TODO:
+//hardcoing the AttributeNames array.size - there are 4 options, not sure how you want enable to work here
+  for (int i = 0; i < 4; i++)
+  {
+    if (parameter == AttributeNames[i])
+    {
+        if (parameter == "pollrate") return ATTR_NAME_POLL_FREQ;
+        if (parameter == "sensitivity") return ATTR_NAME_SENSITIVITY;
+        if (parameter == "mode") return ATTR_NAME_MODE;
+        //NOTE: ENABLE NOT HERE
+    }
+  }
 
   return ATTR_NAME_INVALID;
 }
@@ -143,13 +153,23 @@ Attr_Name getAttrName(String parameter, Target target)
 /// @brief Returns corresponding Attribute Value enum for user's input
 /// @param parameter Token to interpret as a Attribute Value
 /// @return Target enum object. May be _INVALID
+/// @brief Returns corresponding Attribute Value enum for user's input
+/// @param parameter Token to interpret as a Attribute Value
+/// @return Target enum object. May be _INVALID
+
 Attr_Val getAttrVal(String parameter, Target target)
 {
-  if (parameter.isEmpty())
-    return ATTR_VAL_INVALID;
-
-    // TODO:
-
+  if (parameter.isEmpty()) return ATTR_VAL_INVALID;
+  //TODO:
+  //hardcoded the 8 here for now. Idk how to get sizeOf the array.
+  for (int i = 0; i < 8; i++)
+  //why custom in the list?? - whats that doing?
+  {
+    if (parameter == AttributeValues[i])
+    {
+      return (Attr_Val)(i + INVALID_OFFSET);
+    }
+  }
   return ATTR_VAL_INVALID;
 }
 
@@ -471,7 +491,61 @@ void loop()
         }
       }
     }
+    // else if (msg_from_peri.readingType == READING_POLL)
+    // {
+    //   Serial.println("ONLY POLLING");
+    //   for (int i = 1; i <= NUM_OF_SENSORS; i++)
+    //   {
+    //     // Check if we actually got data for this sensor
+    //     if (msg_from_peri.sensorData[i] != -1)
+    //     {
+    //       String sensorName = getSensorName((Target)i);
+    //       //added .c_str because of some issues with 
+    //       Serial.printf("%s Current Value: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
+          
+    //       if (msg_from_peri.sensorDetected[i])
+    //       {
+    //         Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
+    //       }
+    //       else
+    //       {
+    //         Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
+    //       }
+          
+    //       Serial.printf("----------------%s WAS TRIPPED %d TIMES-------------\n\n", sensorName.c_str(), msg_from_peri.numOfDetectInPeriod[i]);
+    //     }
+    //   }
+    // }
+    
+    // else if (msg_from_peri.readingType == READING_TRIG)
+    // {
+    //   Serial.println("ONLY INTERUPTS");
+    //   for (int i = 1; i <= NUM_OF_SENSORS; i++)
+    //   {
+    //     if (msg_from_peri.sensorDetected[i])
+    //     {
+    //       String sensorName = getSensorName((Target)i);
+          
+    //       Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
+    //       Serial.printf("----------------%s WAS TRIPPED %d TIMES-------------\n\n", sensorName.c_str(), msg_from_peri.numOfDetectInPeriod[i]);
+    //     }
+    //   }
+    // }
 
+    // else if (msg_from_peri.readingType == READING_GET)
+    // {
+    //   Serial.println("GEtting reading");
+    //   for (int i = 1; i <= NUM_OF_TARGETS; i++)
+    //   {
+    //     if (msg_from_peri.getResult[i] != -1)
+    //     {
+              //s
+    //     }
+    //   }
+      
+    //   // We got our requested info, so clear the waiting flag
+    //   waitingForReply = false; 
+    // }
     // TODO: Implement interpretation for each reading type
   }
 }
