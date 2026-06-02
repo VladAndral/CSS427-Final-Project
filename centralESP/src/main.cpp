@@ -135,16 +135,9 @@ Attr_Name getAttrName(String parameter, Target target)
   if (parameter.isEmpty())
     return ATTR_NAME_INVALID;
 //TODO:
-//hardcoing the AttributeNames array.size - there are 4 options, not sure how you want enable to work here
   for (int i = 0; i < 4; i++)
   {
-    if (parameter == AttributeNames[i])
-    {
-        if (parameter == "pollrate") return ATTR_NAME_POLL_FREQ;
-        if (parameter == "sensitivity") return ATTR_NAME_SENSITIVITY;
-        if (parameter == "mode") return ATTR_NAME_MODE;
-        //NOTE: ENABLE NOT HERE
-    }
+    if (parameter == AttributeNames[i]) return (Attr_Name)(i+INVALID_OFFSET);
   }
 
   return ATTR_NAME_INVALID;
