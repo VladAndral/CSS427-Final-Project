@@ -446,16 +446,6 @@ void loop()
       waitingForReply = false;
       return;
     }
-
-    /*
-      TODO:
-        - Modify trigpoll to be poll and trig seperately; trigpoll modes should go through both
-          - If only trig, do not print numOfDetectInPeriod[] b/c interrupts are sent instantly
-        - Get: pollRate and sensitivity is stored in sensorData[]; MODE is as well, but need to do
-          extra interpretation from enum to string
-        
-    */
-
     // if Sensor DEMAND
     if (msg_from_peri.readingType == READING_DEMAND)
     {
@@ -471,15 +461,11 @@ void loop()
         }
       }
     }
-    else if (msg_from_peri.readingType == READING_TRIGPOLL)
-    {
-      // IF ISR TRIGGERED
-      for (int i = 1; i < NUM_OF_SENSORS; i++)
-      {
-        
-        if (msg_from_peri.sensorData[i] != -1)
-        {
+    else if(msg_from_peri.readingType == READING_TRIG || msg_from_peri.readingType == READING_TRIGPOLL){
+      for(int i = 1; i < NUM_OF_SENSORS; i++){
+        if(msg_from_peri.sensorData[i] != -1){
           const char *sensorName = getSensorName((Target)i).c_str();
+
           if (msg_from_peri.sensorDetected[i])
           {
             Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------", sensorName);
@@ -488,66 +474,34 @@ void loop()
           {
             Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------", sensorName);
           }
-          
-          Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName, msg_from_peri.numOfDetectInPeriod[i]);
         }
       }
     }
-    // else if (msg_from_peri.readingType == READING_POLL)
-    // {
-    //   Serial.println("ONLY POLLING");
-    //   for (int i = 1; i <= NUM_OF_SENSORS; i++)
-    //   {
-    //     // Check if we actually got data for this sensor
-    //     if (msg_from_peri.sensorData[i] != -1)
-    //     {
-    //       String sensorName = getSensorName((Target)i);
-    //       //added .c_str because of some issues with 
-    //       Serial.printf("%s Current Value: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
-          
-    //       if (msg_from_peri.sensorDetected[i])
-    //       {
-    //         Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
-    //       }
-    //       else
-    //       {
-    //         Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
-    //       }
-          
-    //       Serial.printf("----------------%s WAS TRIPPED %d TIMES-------------\n\n", sensorName.c_str(), msg_from_peri.numOfDetectInPeriod[i]);
-    //     }
-    //   }
-    // }
-    
-    // else if (msg_from_peri.readingType == READING_TRIG)
-    // {
-    //   Serial.println("ONLY INTERUPTS");
-    //   for (int i = 1; i <= NUM_OF_SENSORS; i++)
-    //   {
-    //     if (msg_from_peri.sensorDetected[i])
-    //     {
-    //       String sensorName = getSensorName((Target)i);
-          
-    //       Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
-    //       Serial.printf("----------------%s WAS TRIPPED %d TIMES-------------\n\n", sensorName.c_str(), msg_from_peri.numOfDetectInPeriod[i]);
-    //     }
-    //   }
-    // }
+    else if(msg_from_peri.readingType == READING_POLL || msg_from_peri.readingType == READING_TRIGPOLL){
+      for(int i = 1; i < NUM_OF_SENSORS; i++){
+        if(msg_from_peri.sensorData[i] != -1){
+          const char *sensorName = getSensorName((Target)i).c_str();
+          Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName, msg_from_peri.numOfDetectInPeriod[i]);
+          //need to print the sensor value at that time interval. 
+          Serial.printf("%s data is: %d\n", sensorName, msg_from_peri.sensorData[i]);        
+        }
+      }
+    }
+    //get reading
+else if (msg_from_peri.readingType == READING_GET)
+    {
+      Serial.print("\n[GET COMMAND RESULT] -> \n");
+      for (int i = 1; i <= NUM_OF_SENSORS; i++)
+      {
+        if (msg_from_peri.getResult[i] != -1)
+        {
+          String targetName = getSensorName((Target)i);
+          const char* result = AttributeValues[msg_from_peri.getResult[i] - 1].c_str();
+          Serial.printf("%s Property is: %s\n\n", targetName.c_str(), result);
+        }
 
-    // else if (msg_from_peri.readingType == READING_GET)
-    // {
-    //   Serial.println("GEtting reading");
-    //   for (int i = 1; i <= NUM_OF_TARGETS; i++)
-    //   {
-    //     if (msg_from_peri.getResult[i] != -1)
-    //     {
-              //s
-    //     }
-    //   }
-      
-    //   // We got our requested info, so clear the waiting flag
-    //   waitingForReply = false; 
-    // }
-    // TODO: Implement interpretation for each reading type
+      }
+      waitingForReply = false; 
+    }
   }
 }
