@@ -13,7 +13,11 @@
 class SensorBase
 {
 protected:
-  bool enabled;
+  bool calibrationError;
+  bool sensorEnabled;
+  bool pollEnabled;
+  bool sendOnIntr;
+  ReadingType readingMode;
   uint32_t periodLen_ms;
   uint32_t prevTime;
   int pin_num;
@@ -43,9 +47,22 @@ public:
   // Setters & Getters
   void setEnabled(bool state);
   bool isEnabled() const;
+  void setPollingEnabled(bool state);
+  bool isPollingEnabled() const;
+  void setSendOnIntr(bool state);
+  /// @brief Should you send if an interrupt is triggered
+  /// @return `true` if message should be sent instantly on trigger
+  bool isSendOnIntr() const;
+  void setReadingType(ReadingType mode);
+  ReadingType getReadingType() const;
+
   void setPollPeriod(uint32_t period);
   uint32_t getPollPeriod() const;
   virtual void setSensitivity(float sensitivity);
   virtual float getSensitivity() const;
   bool isSensitivityAdjustable() const;
+  void setCalibrationError(bool isError);
+  /// @brief Returns true if there was an error calibrating
+  /// @return True if there was an error calibrating
+  bool getCalibrationError() const; 
 };

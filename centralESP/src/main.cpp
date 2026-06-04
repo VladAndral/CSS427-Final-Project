@@ -18,7 +18,6 @@
             Red flag sticky is central
 */
 
-Ctrlr_Msg msg_to_peri;
 Peri_Msg msg_from_peri;
 
 Target target;
@@ -28,7 +27,9 @@ Attr_Val attr_val;
 
 bool receivedData = false;
 
-bool dummyFunctions(String dum1[TOK_ARR_SIZE], int &dum2)
+Attr_Name expectedGetAttribute = ATTR_NAME_INVALID;
+
+bool dummyFunctions(String dum1[TOK_ARR_SIZE], int &dum2, Ctrlr_Msg &msg)
 {
   Serial.println("You've hit a dummy function...");
   return false;
@@ -37,7 +38,7 @@ bool dummyFunctions(String dum1[TOK_ARR_SIZE], int &dum2)
     Array of pointers to functions that will build a message to be sent to the
     peripheral. Message will not be sent if any inputs are invalid.
 */
-bool (*buildMsg_funcArr[5])(String tokenArray[TOK_ARR_SIZE], int &arrPos) = {dummyFunctions};
+bool (*buildMsg_funcArr[5])(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg) = {dummyFunctions};
 
 // Callback function
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
@@ -70,18 +71,11 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
     }
   }
 }
-/*
-    Set every field of message to invalid
-*/
-void resetMsg()
+
+Ctrlr_Msg newMsgToPeri()
 {
-  msg_to_peri.action = ACTION_INVALID;
-  msg_to_peri.attr_name = ATTR_NAME_INVALID;
-  msg_to_peri.attr_val = ATTR_VAL_INVALID;
-  msg_to_peri.target = TARGET_INVALID;
-  msg_to_peri.val1 = VALUE_INVALID;
-  msg_to_peri.val2 = VALUE_INVALID;
-  msg_to_peri.val3 = VALUE_INVALID;
+  Ctrlr_Msg toReturn;
+  return toReturn;
 }
 
 /*
@@ -98,13 +92,10 @@ void flushSerial()
 /// @return Target enum object. May be _INVALID
 Target getTarget(String parameter)
 {
-  if (parameter.isEmpty())
-    return TARGET_INVALID;
+  if (parameter.isEmpty()) return TARGET_INVALID;
 
-  for (int i = 0; i < targetNames->length(); i++)
-  {
-    if (parameter == targetNames[i])
-      return (Target)(i + INVALID_OFFSET);
+  for (int i = 0; i < TARGET_NAMES_COUNT; i++) {
+    if (parameter == targetNames[i]) return (Target)(i + INVALID_OFFSET);
   }
 
   return TARGET_INVALID;
@@ -115,13 +106,10 @@ Target getTarget(String parameter)
 /// @return Target enum object. May be _INVALID
 Action getAction(String parameter, Target target)
 {
-  if (parameter.isEmpty())
-    return ACTION_INVALID;
+  if (parameter.isEmpty()) return ACTION_INVALID;
 
-  for (int i = 0; i < actionNames->length(); i++)
-  {
-    if (parameter == actionNames[i])
-      return (Action)(i + INVALID_OFFSET);
+  for (int i = 0; i < ACTION_NAMES_COUNT; i++) {
+    if (parameter == actionNames[i]) return (Action)(i + INVALID_OFFSET);
   }
 
   return ACTION_INVALID;
@@ -132,14 +120,12 @@ Action getAction(String parameter, Target target)
 /// @return Target enum object. May be _INVALID
 Attr_Name getAttrName(String parameter, Target target)
 {
-  if (parameter.isEmpty())
-    return ATTR_NAME_INVALID;
-//TODO:
-  for (int i = 0; i < 4; i++)
-  {
-    if (parameter == AttributeNames[i]) return (Attr_Name)(i+INVALID_OFFSET);
+  if (parameter.isEmpty()) return ATTR_NAME_INVALID;
+  
+  for (int i = 0; i < ATTR_NAMES_COUNT; i++) {
+    if (parameter == AttributeNames[i]) return (Attr_Name)(i + INVALID_OFFSET);
   }
-
+  
   return ATTR_NAME_INVALID;
 }
 
@@ -149,25 +135,19 @@ Attr_Name getAttrName(String parameter, Target target)
 /// @brief Returns corresponding Attribute Value enum for user's input
 /// @param parameter Token to interpret as a Attribute Value
 /// @return Target enum object. May be _INVALID
-
 Attr_Val getAttrVal(String parameter, Target target)
 {
   if (parameter.isEmpty()) return ATTR_VAL_INVALID;
-  //TODO:
-  //hardcoded the 8 here for now. Idk how to get sizeOf the array.
-  for (int i = 0; i < 8; i++)
-  //why custom in the list?? - whats that doing?
-  {
-    if (parameter == AttributeValues[i])
-    {
-      return (Attr_Val)(i + INVALID_OFFSET);
-    }
+  
+  for (int i = 0; i < ATTR_VALS_COUNT; i++) {
+    if (parameter == AttributeValues[i]) return (Attr_Val)(i + INVALID_OFFSET);
   }
+  
   return ATTR_VAL_INVALID;
 }
 
 /// @brief Send the global message to the peripheral
-void sendMsgStructToPeri()
+void sendMsgStructToPeri(Ctrlr_Msg &msg_to_peri)
 {
   ESPNow.send_message(peripheral_mac, (uint8_t *)&msg_to_peri, sizeof(msg_to_peri));
 }
@@ -177,7 +157,7 @@ void sendMsgStructToPeri()
 /// @param tokenArray Array of all tokens
 /// @param arrPos Reference to position tracking variable
 /// @return False if any part of the message is invalid (should not be sent)
-bool buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
+bool buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_peri)
 {
   /*
       PARSING: Action
@@ -247,7 +227,7 @@ bool buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos)
 /// @param tokenArray Array of all tokens
 /// @param arrPos Reference to position tracking variable
 /// @return False if any part of the message is invalid (should not be sent)
-bool buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos)
+bool buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_peri)
 {
   /*
       PARSING: Action
@@ -328,12 +308,6 @@ String getSensorName(Target target)
   return sensorName;
 }
 
-Target expectedTarget = TARGET_INVALID;
-Attr_Name expectedAttr = ATTR_NAME_INVALID;
-bool waitingForReply = false;
-
-
-
 /****************************
     SETUP AND MAIN LOOP
 *****************************/
@@ -362,10 +336,11 @@ void setup()
 
   // During testing, buffer would send garbage on first message; flush it
   flushSerial();
-  resetMsg();
 
+  Ctrlr_Msg testMsg = newMsgToPeri();
+  testMsg.target = TARGET_INVALID;
   // Test
-  sendMsgStructToPeri();
+  sendMsgStructToPeri(testMsg);
 
   for (int i = INVALID_OFFSET; i <= SENSOR_RF; i++)
   {
@@ -398,15 +373,12 @@ void loop()
     //     Serial.println(":");
     // }
 
-    resetMsg();
+    Ctrlr_Msg msg_to_peri = newMsgToPeri();
     /*
         PARSING: Target
     */
     int arrPos = 0;
-    Target target = getTarget(tokenArray[arrPos++]);
-    Action action;
-    Attr_Name attr_name;
-    Attr_Val attr_val;
+    target = getTarget(tokenArray[arrPos++]);
 
     if (target == TARGET_INVALID)
     {
@@ -417,22 +389,17 @@ void loop()
       msg_to_peri.target = target;
 
       // Call the function that corresponds to the target
-      bool validMessage = buildMsg_funcArr[target](tokenArray, arrPos);
+      bool validMessage = buildMsg_funcArr[target](tokenArray, arrPos, msg_to_peri);
 
       if (validMessage)
       {
-        // Wait for a reply if the action is GET or DEMAND
-        if (msg_to_peri.action == ACTION_GET || msg_to_peri.action == ACTION_DEMAND)
+        if (msg_to_peri.action == ACTION_GET)
         {
-          expectedTarget = msg_to_peri.target;
-          expectedAttr = msg_to_peri.attr_name;
-          waitingForReply = true;
+          expectedGetAttribute = msg_to_peri.attr_name;
         }
         Serial.println("Sending message...");
-        sendMsgStructToPeri();
+        sendMsgStructToPeri(msg_to_peri);
       }
-
-      resetMsg();
     }
   }
 
@@ -443,26 +410,24 @@ void loop()
     if (msg_from_peri.recv_msg_error)
     {
       Serial.println("[ERROR]: Peripheral rejected the command.");
-      waitingForReply = false;
       return;
     }
-    // if Sensor DEMAND
-    if (msg_from_peri.readingType == READING_DEMAND)
+
+    for (int i = 1; i <= NUM_OF_SENSORS; i++)
     {
-      Serial.print("\n[ON-DEMAND REPORT] -> ");
-      for (int i = 1; i < NUM_OF_SENSORS; i++)
+      // if Sensor DEMAND
+      if (msg_from_peri.sensorReadingType[i] == READING_DEMAND)
       {
-        // Only display sensors that got readings
-        // This way, we don't need to discriminate between sensor or system command
-        if (msg_from_peri.sensorData[i] != -1)
-        {
-          String sensorName = getSensorName((Target)i);
-          Serial.printf("%s Current Value: %d\n", sensorName, msg_from_peri.sensorData[i]);
-        }
+        Serial.print("\n[ON-DEMAND REPORT] -> ");
+          // Only display sensors that got readings
+          // This way, we don't need to discriminate between sensor or system command
+          if (msg_from_peri.sensorData[i] != -1)
+          {
+            String sensorName = getSensorName((Target)i);
+            Serial.printf("%s Current Value: %d\n", sensorName, msg_from_peri.sensorData[i]);
+          }
       }
-    }
-    else if(msg_from_peri.readingType == READING_TRIG || msg_from_peri.readingType == READING_TRIGPOLL){
-      for(int i = 1; i < NUM_OF_SENSORS; i++){
+      else if(msg_from_peri.sensorReadingType[i] == READING_TRIG || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL){
         if(msg_from_peri.sensorData[i] != -1){
           const char *sensorName = getSensorName((Target)i).c_str();
 
@@ -476,9 +441,7 @@ void loop()
           }
         }
       }
-    }
-    else if(msg_from_peri.readingType == READING_POLL || msg_from_peri.readingType == READING_TRIGPOLL){
-      for(int i = 1; i < NUM_OF_SENSORS; i++){
+      else if(msg_from_peri.sensorReadingType[i] == READING_POLL || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL){
         if(msg_from_peri.sensorData[i] != -1){
           const char *sensorName = getSensorName((Target)i).c_str();
           Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName, msg_from_peri.numOfDetectInPeriod[i]);
@@ -486,22 +449,30 @@ void loop()
           Serial.printf("%s data is: %d\n", sensorName, msg_from_peri.sensorData[i]);        
         }
       }
-    }
-    //get reading
-else if (msg_from_peri.readingType == READING_GET)
-    {
-      Serial.print("\n[GET COMMAND RESULT] -> \n");
-      for (int i = 1; i <= NUM_OF_SENSORS; i++)
+      //get reading
+      else if (msg_from_peri.sensorReadingType[i] == READING_GET || expectedGetAttribute == ATTR_NAME_MODE)
       {
-        if (msg_from_peri.getResult[i] != -1)
-        {
-          String targetName = getSensorName((Target)i);
-          const char* result = AttributeValues[msg_from_peri.getResult[i] - 1].c_str();
-          Serial.printf("%s Property is: %s\n\n", targetName.c_str(), result);
+        if (expectedGetAttribute == ATTR_NAME_MODE)
+        { 
+          String mode = AttributeValues[msg_from_peri.getResult[TARGET_SYSTEM] - 1];
+          Serial.printf("System's mode is: %s\n\n", mode);
+          // Break out of the loop because only system will do mode
+          break;
         }
 
+        if (msg_from_peri.getResult[i] != -1)
+        {
+          Serial.print("\n[GET COMMAND RESULT] -> \n");
+          String targetName = getSensorName((Target)i);
+          
+          int result = msg_from_peri.getResult[i];
+          Serial.printf("%s Property is: %d\n\n", targetName, result);
+        }
+        else
+        {
+          Serial.print("\nERROR: Somehow got bad reading from get command\n");
+        }
       }
-      waitingForReply = false; 
     }
-  }
+  } //
 }

@@ -40,20 +40,18 @@ int pollFreqPhoto = 5;
 int pollTimePhoto = 250;
 int photoData;
 
-// Should not be const b/c trigMin depends on calibrated noise floor
-int trigMin_photo = 100;
-float trigMin_rf = 100;
-
 /*
   Set when calibrate methods are called
 */
-int trigMax_photo;
-float trigMax_rf;
-int sensitivityStep_photo;
-float sensitivityStep_rf;
+// Should not be const b/c trigMin depends on calibrated noise floor
+// TODO: Change to a "reasonable" value
+float trigMin[NUM_OF_SENSORS + INVALID_OFFSET] = {100};
+float trigMax[NUM_OF_SENSORS + INVALID_OFFSET] = {200};
+float sensitivityStep[NUM_OF_SENSORS + INVALID_OFFSET] = {1};
 
-const int normalPollPeriod_ms = 2000;
+const int normalPollPeriod_ms = 2*1000;
 const int maintPollPeriod_ms = 1*1000;
+const int quietPollPeriod_ms = 1*1000;
 
 int64_t timeSinceBoot;
 
@@ -62,18 +60,20 @@ uint32_t curTime;
 int clock_hour;
 int clock_minute;
 
-bool interruptsEnabled = false;
-
 const char *recv_data;
 volatile bool receivedData = false;
+
+Attr_Val system_mode = ATTR_VAL_SYS_NORMAL;
 
 String rfDataTokens[RF_TOKEN_COUNT] = {""};
 
 Ctrlr_Msg msg_from_ctrlr;
 
+String rejectionReason = "Default";
+
 // --- Global Hardware Interrupt Flags ---
-volatile bool sns_intr_flag[NUM_OF_SENSORS] = {false};
-int sns_intr_count[NUM_OF_SENSORS] = {0};
+volatile bool sns_intr_flag[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
+int sns_intr_count[NUM_OF_SENSORS + INVALID_OFFSET] = {0};
 
 // Better to use this instead of Arduino's cli() and sei()
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -82,9 +82,12 @@ bool emptyRead() { return false; }
 /// @brief Functions that read, and only read, their corresponding sensors
 bool (*readSensor[NUM_OF_TARGETS + INVALID_OFFSET])() = {emptyRead};
 
-bool emptyEA(Peri_Msg &to_ctrlr) { return false; }
-/// @brief Each target should have a function that interprets an action.
-/// Returns false if any part of the message is not valid and/or the action was not executed.
+bool emptyEA(Peri_Msg &to_ctrlr) {
+  rejectionReason = "Somehow running an emty execute";
+  return false;
+}
+/// @brief Each target should have a function that interprets an action. Each function is indexed by its
+/// corresponding enum. Returns false if any part of the message is not valid and/or the action was not executed.
 /// Returns true if the command is valid; these functions will operate on sensors if the command is valid
-/// @param Takes a reference to the message to be sent to the controller
+/// @param to_ctrlr A reference to the message to be sent to the controller
 bool (*executeAction[NUM_OF_TARGETS + INVALID_OFFSET])(Peri_Msg &) = {emptyEA};

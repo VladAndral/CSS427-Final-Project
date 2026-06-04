@@ -28,6 +28,8 @@ String AttributeValues[]{
   "trig",
   "poll",
   "trigpoll",
+  "enable",
+  "disable",
   "normal",
   "maintenance",
   "quiet",

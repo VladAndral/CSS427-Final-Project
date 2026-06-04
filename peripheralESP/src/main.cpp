@@ -15,7 +15,7 @@ Photo photoSensor(PHOTO_BOARD_PIN, &sns_intr_flag[SENSOR_PHOTO]);
 RF rfSensor(RF_BOARD_PIN, &sns_intr_flag[SENSOR_RF]);
 
 // We size to NUM_OF_TARGETS + 1 so the enums (1 = PIR, 2 = Photo, 3 = RF) match the indices perfectly
-SensorBase *sensorArr[NUM_OF_TARGETS + 1] = {
+SensorBase *sensorArray[NUM_OF_TARGETS + 1] = {
   nullptr,
   &pirSensor,
   &photoSensor,
@@ -27,7 +27,7 @@ SensorSystem systemSensor(pirSensor, photoSensor, rfSensor);
 /**********************************
     MESSAGING
 **********************************/
-// ... [Keep your ESP-NOW onRecv, onDataSent, and sendMsgStructToController functions here] ...
+// ... [Keep your ESP-NOW onRecv, onDataSent, and sendDataStructToController functions here] ...
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
@@ -44,13 +44,14 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void sendMsgStructToController(Peri_Msg &msg_to_ctrlr)
+void sendDataStructToController(Peri_Msg &msg_to_ctrlr)
 {
   ESPNow.send_message(controller_mac, (uint8_t *)&msg_to_ctrlr, sizeof(msg_to_ctrlr));
 }
 
 void sendLogMsgToCtrlr(String logMsg)
 {
+  logMsg += "~";
   const char *logMsgConvert = logMsg.c_str();
   ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
 }
@@ -58,7 +59,10 @@ void sendLogMsgToCtrlr(String logMsg)
 Peri_Msg new_msg_to_ctrlr()
 {
   // {0} guarantees every single bit in the struct is safely zeroed out
-  Peri_Msg toReturn; 
+  Peri_Msg toReturn;
+  
+  for (int i = 1; i <= NUM_OF_SENSORS; i++)
+  toReturn.sensorReadingType[i] = sensorArray[i]->getReadingType();
   
   return toReturn;
 }
@@ -68,22 +72,18 @@ Peri_Msg new_msg_to_ctrlr()
 bool cmd_demand(Peri_Msg &msg_to_ctrlr)
 {
   Target target = msg_from_ctrlr.target;
-  msg_to_ctrlr.readingType = READING_DEMAND;
 
-  if (target >= SENSOR_PIR && target <= SENSOR_RF)
+  int curTarget = (target == TARGET_SYSTEM) ? 1 : target;
+  int end = (target == TARGET_SYSTEM) ? NUM_OF_SENSORS : target;
+  
+  for (curTarget; curTarget <= end; curTarget++)
   {
-    float val = sensorArr[target]->getReading();
-    msg_to_ctrlr.sensorData[target] = (int)val;
-    return true;
+    msg_to_ctrlr.sensorReadingType[curTarget] = READING_DEMAND;
+    msg_to_ctrlr.sensorReadingType[curTarget] = READING_DEMAND;
+    msg_to_ctrlr.sensorData[curTarget] = (int)sensorArray[curTarget]->getReading();
   }
-  else if (target == TARGET_SYSTEM)
-  {
-    // System demand iterates over everything
-    for (int i = 1; i <= NUM_OF_SENSORS; i++)
-      msg_to_ctrlr.sensorData[i] = (int)sensorArr[i]->getReading();
-    return true;
-  }
-  return false;
+
+  return true;
 }
 
 // TODO: Clean up b/c all targets have same attributes
@@ -93,44 +93,113 @@ bool cmd_demand(Peri_Msg &msg_to_ctrlr)
 bool cmd_set(Peri_Msg &msg_to_ctrlr)
 {
   if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+  {
+    rejectionReason = "Invalid attribute name";
     return false;
+  }
+  
   Target target = msg_from_ctrlr.target;
 
-  if (target >= SENSOR_PIR && target <= SENSOR_RF)
+  int curTarget = (target == TARGET_SYSTEM) ? 1 : target;
+  int end = (target == TARGET_SYSTEM) ? NUM_OF_SENSORS : target;
+  
+  for (curTarget; curTarget <= end; curTarget++)
   {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+    if (sensorArray[curTarget]->getCalibrationError())
     {
-      sensorArr[target]->setPollPeriod(msg_from_ctrlr.val1);
-      return true;
+      // If it's system, skip the sensor
+      // If it's specific sensor, return error
+      if (target != TARGET_SYSTEM)
+      {
+        rejectionReason = "Cannot be set b/c of prev. calibration error";
+        return false;
+      }
+      else continue;
     }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY && sensorArr[target]->isSensitivityAdjustable())
+    
+    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_PERIOD)
     {
-      sensorArr[target]->setSensitivity(msg_from_ctrlr.val1);
-      return true;
-    }
-  }
-  else if (target == TARGET_SYSTEM)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      for (int i = 1; i <= 3; i++)
-        sensorArr[i]->setPollPeriod(msg_from_ctrlr.val1);
-      return true;
+      if (msg_from_ctrlr.val1 != sensorArray[curTarget]->getPollPeriod())
+        system_mode = ATTR_VAL_SYS_CUSTOM;
+      sensorArray[curTarget]->setPollPeriod(msg_from_ctrlr.val1);
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
-      for (int i = 1; i <= 3; i++)
-        sensorArr[i]->setSensitivity(msg_from_ctrlr.val1);
-      return true;
+      if (sensorArray[curTarget]->isSensitivityAdjustable())
+        sensorArray[curTarget]->setSensitivity(msg_from_ctrlr.val1);
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
     {
-      // TODO:
-      // Handle system modes (Normal, Maint, Lockdown) here using your existing logic
-      return true;
+      switch (msg_from_ctrlr.val1)
+      {
+      case ATTR_VAL_SNS_TRIG:
+        sensorArray[curTarget]->setReadingType(READING_TRIG);
+        sensorArray[curTarget]->setPollingEnabled(false);
+        sensorArray[curTarget]->setSendOnIntr(true);
+        break;
+        case ATTR_VAL_SNS_POLL:
+        sensorArray[curTarget]->setReadingType(READING_POLL);
+        sensorArray[curTarget]->setPollingEnabled(true);
+        sensorArray[curTarget]->setSendOnIntr(false);
+        break;
+        case ATTR_VAL_SNS_TRIGPOLL:
+        sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
+        sensorArray[curTarget]->setPollingEnabled(true);
+        sensorArray[curTarget]->setSendOnIntr(true);
+        break;
+      case ATTR_VAL_ENABLE:
+        sensorArray[curTarget]->setEnabled(true);
+        break;
+      case ATTR_VAL_DISABLE:
+        sensorArray[curTarget]->setEnabled(false);
+        break;
+      case ATTR_VAL_SYS_NORMAL:
+        sensorArray[curTarget]->setEnabled(true);
+        sensorArray[curTarget]->setPollingEnabled(true);
+        sensorArray[curTarget]->setSendOnIntr(true);
+        sensorArray[curTarget]->setPollPeriod(normalPollPeriod_ms);
+        system_mode = msg_from_ctrlr.attr_val;
+        break;
+      case ATTR_VAL_SYS_MAINT:
+        if ((Target)curTarget != SENSOR_RF)
+        {
+          sensorArray[curTarget]->setEnabled(false);
+        }
+        else
+        {
+          sensorArray[curTarget]->setEnabled(true);
+          sensorArray[curTarget]->setPollingEnabled(true);
+          sensorArray[curTarget]->setSendOnIntr(false);
+          sensorArray[curTarget]->setPollPeriod(maintPollPeriod_ms);
+        }
+        system_mode = msg_from_ctrlr.attr_val;
+        break;
+      case ATTR_VAL_SYS_QUIET:
+        sensorArray[curTarget]->setEnabled(true);
+        sensorArray[curTarget]->setPollingEnabled(true);
+        sensorArray[curTarget]->setSendOnIntr(false);
+        sensorArray[curTarget]->setPollPeriod(quietPollPeriod_ms);
+        sensorArray[curTarget]->setSensitivity(trigMin[curTarget] + sensitivityStep[curTarget]);
+        system_mode = msg_from_ctrlr.attr_val;
+        break;
+      case ATTR_VAL_SYS_LOCKDOWN:
+        sensorArray[curTarget]->setEnabled(true);
+        sensorArray[curTarget]->setPollingEnabled(true);
+        sensorArray[curTarget]->setSendOnIntr(true);
+        sensorArray[curTarget]->setPollPeriod(quietPollPeriod_ms);
+        sensorArray[curTarget]->setSensitivity(trigMin[curTarget] + sensitivityStep[curTarget]);
+        system_mode = msg_from_ctrlr.attr_val;
+        break;
+      default:
+        rejectionReason = "Don't know what this mode is";
+        return false;
+        break;
+      }
     }
+    msg_to_ctrlr.sensorReadingType[curTarget] = READING_INVALID;
   }
-  return false;
+  
+  return true;
 }
 
 // TODO:
@@ -138,42 +207,50 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
 bool cmd_get(Peri_Msg &msg_to_ctrlr)
 {
   if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+  {
+    rejectionReason = "Invalid attribute name";
     return false;
+  }
+  
   Target target = msg_from_ctrlr.target;
 
-  if (target >= SENSOR_PIR && target <= SENSOR_RF)
+  int curTarget = target == TARGET_SYSTEM ? 1 : target;
+  int end = target == TARGET_SYSTEM ? NUM_OF_SENSORS : target;
+  
+  for (curTarget; curTarget <= end; curTarget++)
   {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
+    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_PERIOD)
     {
-      msg_to_ctrlr.getResult[target] = sensorArr[target]->getPollPeriod();
-      return true;
+      msg_to_ctrlr.getResult[curTarget] = sensorArray[curTarget]->getPollPeriod();
     }
-    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY && sensorArr[target]->isSensitivityAdjustable())
+    else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
-      msg_to_ctrlr.getResult[target] = sensorArr[target]->getSensitivity();
-      return true;
-    }
-  }
-  else if (target == TARGET_SYSTEM)
-  {
-    if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_FREQ)
-    {
-      // TODO:
-      return true;
-    }
+      if (sensorArray[curTarget]->isSensitivityAdjustable())
+        msg_to_ctrlr.getResult[curTarget] = sensorArray[curTarget]->getSensitivity();
+      }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
     {
-      // TODO:
-      // Handle system modes (Normal, Maint, Lockdown) here using your existing logic
-      return true;
+      // For now, we're not going to get mode of an individual sensor
+      if (target != TARGET_SYSTEM)
+      {
+        rejectionReason = "Cannot get mode of any indiv. sensor";
+        return false;
+      }
+      msg_to_ctrlr.getResult[TARGET_SYSTEM] = system_mode;
+      break;
+    
     }
+    msg_to_ctrlr.sensorReadingType[curTarget] = READING_GET;
   }
-  return false;
+
+  // rejectionReason = "Somehow fell thru get";
+  return true;
 }
 
 // TODO:
 bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
 {
+  rejectionReason = "Schedule not impl. yet";
   return false;
 }
 
@@ -197,9 +274,9 @@ void setup()
   ESPNow.reg_send_cb(onDataSent);
   ESPNow.reg_recv_cb(onRecv);
   
-  sensorArr[SENSOR_PIR]->setPollPeriod(2000);
-  sensorArr[SENSOR_PHOTO]->setPollPeriod(2000);
-  sensorArr[SENSOR_RF]->setPollPeriod(2000);
+  sensorArray[SENSOR_PIR]->setPollPeriod(2000);
+  sensorArray[SENSOR_PHOTO]->setPollPeriod(2000);
+  sensorArray[SENSOR_RF]->setPollPeriod(2000);
 
   pinMode(PIR_BOARD_PIN, INPUT);
   pinMode(PHOTO_BOARD_PIN, INPUT_PULLDOWN);
@@ -214,21 +291,34 @@ void setup()
   executeAction[ACTION_SET] = cmd_set;
   executeAction[ACTION_GET] = cmd_get;
 
-  sendLogMsgToCtrlr("Peripheral is booted up~");
+  sendLogMsgToCtrlr("Peripheral is setting up...");
 
   // Calibrate objects
-  sensorArr[SENSOR_PHOTO]->calibrate();
-  sendLogMsgToCtrlr("Photodiode sensor is booted up~");
+  bool calibrated = false;
+  
+  for (int i = 1; i <= NUM_OF_SENSORS; i++)
+  {
+    String logMsg = targetNames[i-1];
+    calibrated = sensorArray[i]->calibrate();
+    
+    if (calibrated)
+    {
+      logMsg += " is booted up";
+    }
+    else
+    {
+      logMsg += " is NOT booted up. DISABLING SENSOR";
+    }
 
-  if (sensorArr[SENSOR_RF]->calibrate())
-  {
-    sendLogMsgToCtrlr("HackRF is booted up~");
+    sensorArray[i]->setCalibrationError(!calibrated);
+    sensorArray[i]->setEnabled(calibrated);
+
+    sendLogMsgToCtrlr(logMsg);
+    delay(10);
   }
-  else
-  {
-    sendLogMsgToCtrlr("ERROR: HackRF is NOT booted up.~");
-    sensorArr[SENSOR_RF]->setEnabled(false);
-  }
+
+  Serial.println("worked4");
+  sendLogMsgToCtrlr("Peripheral now WORKING...");
 }
 
 /*
@@ -251,13 +341,13 @@ void loop()
     }
   }
 
-  bool sensorTripped[NUM_OF_SENSORS] = {false};
+  bool sensorTripped[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
 
   for (int i = 1; i <= NUM_OF_SENSORS; i++)
   {
-    sensorTripped[i] = sensorArr[i]->checkAndClearInterrupt();
+    sensorTripped[i] = sensorArray[i]->checkAndClearInterrupt();
     if (sensorTripped[i])
-    sns_intr_count[SENSOR_PIR]++;
+    sns_intr_count[i]++;
   }
     
   // Process Incoming Controller Messages
@@ -266,50 +356,77 @@ void loop()
     receivedData = false;
     Peri_Msg msg_to_ctrlr_user = new_msg_to_ctrlr();
 
-    if (msg_from_ctrlr.target != TARGET_INVALID)
+    if (msg_from_ctrlr.target == TARGET_INVALID)
     {
-      msg_to_ctrlr_user.recv_msg_error = !executeAction[msg_from_ctrlr.action](msg_to_ctrlr_user);
+      String logMsg = "Peripheral: Invalid target name";
+      sendLogMsgToCtrlr(logMsg);
     }
-    sendMsgStructToController(msg_to_ctrlr_user);
+
+    bool actionExecuted = executeAction[msg_from_ctrlr.action](msg_to_ctrlr_user);
+    msg_to_ctrlr_user.recv_msg_error = !actionExecuted;
+    String logMsg = "Peripheral: Got the message.";
+    
+    if (!actionExecuted)
+    {
+      logMsg += "\nAction did not execute: reason:";
+      logMsg += rejectionReason;
+      logMsg += "\n\n";
+    }
+    else
+    {
+      logMsg += " Action executed successfully";
+    }
+
+    sendLogMsgToCtrlr(logMsg);
+    delay(10);
+    sendDataStructToController(msg_to_ctrlr_user);
+    delay(10);
   }
 
+  /*
+    POLLING AND INTERRUPTS
+  */
   // --- Object-Oriented Polling Logic ---
-  Peri_Msg msg_to_ctrlr_polling = new_msg_to_ctrlr();
-  msg_to_ctrlr_polling.recv_msg_error = false;
+  // Polling and polltrig data can use the same message
+  Peri_Msg msg_to_ctrlr_poll_pollTrig = new_msg_to_ctrlr();
+  msg_to_ctrlr_poll_pollTrig.recv_msg_error = false;
+
   uint32_t curTime = millis();
   bool gotReading = false;
-  float readingVal = 0;
+  float pollReadingVal = 0;
 
-  // A single loop handles all sensors dynamically!
+  // Sensor polling
   for (int i = 1; i <= NUM_OF_SENSORS; i++)
   {
-    if (sensorArr[i]->poll(curTime, readingVal))
+    if (sensorArray[i]->isEnabled() && sensorArray[i]->isPollingEnabled() && sensorArray[i]->poll(curTime, pollReadingVal))
     {
       gotReading = true;
-      msg_to_ctrlr_polling.sensorData[msg_from_ctrlr.target] = (int)readingVal;
-      msg_to_ctrlr_polling.numOfDetectInPeriod[msg_from_ctrlr.target] = sns_intr_count[msg_from_ctrlr.target];
-      sns_intr_count[msg_from_ctrlr.target] = 0;
+      msg_to_ctrlr_poll_pollTrig.sensorData[i] = (int)pollReadingVal;
+      msg_to_ctrlr_poll_pollTrig.numOfDetectInPeriod[i] = sns_intr_count[i];
+      sns_intr_count[i] = 0;
     }
   }
 
-  if (gotReading)
-  {
-    msg_to_ctrlr_polling.readingType = READING_POLL;
-    sendMsgStructToController(msg_to_ctrlr_polling);
-  }
+  if (gotReading) sendDataStructToController(msg_to_ctrlr_poll_pollTrig);
+  // We might send an intr message also, give central time to receive message
+  delay(10);
 
   // --- Hardware Interrupt Check ---
-  if (interruptsEnabled)
+  Peri_Msg msg_to_ctrlr_intr = new_msg_to_ctrlr();
+  msg_to_ctrlr_intr.recv_msg_error = false;  
+  bool anyDetection = false;
+
+  // Use the boolean states saved at the top of the loop!
+  for (int i = 1; i < NUM_OF_SENSORS; i++)
   {
-    Peri_Msg msg_to_ctrlr_intr = new_msg_to_ctrlr();
-    msg_to_ctrlr_intr.recv_msg_error = false;
-    bool anyDetection = false;
-
-    // Use the boolean states saved at the top of the loop!
-    for (int i = 1; i < NUM_OF_SENSORS; i++)
-      msg_to_ctrlr_intr.sensorDetected[i] = anyDetection = true;
-
-    if (anyDetection)
-      sendMsgStructToController(msg_to_ctrlr_intr);
+    // If mode is trig, send message instantly
+    if (sensorArray[i]->isEnabled() && sensorArray[i]->isSendOnIntr() && sensorTripped[i])
+    {
+      anyDetection = true;
+      msg_to_ctrlr_intr.sensorDetected[i] = true;
+      sendDataStructToController(msg_to_ctrlr_intr);
+    }
   }
+    
+  if (anyDetection) sendDataStructToController(msg_to_ctrlr_intr);
 }

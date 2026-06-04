@@ -37,7 +37,7 @@ enum ReadingType : int
 /*
          target                    action                    attributeName                    attributeValue
 
-    [<sensor>/system]        [set/get/schedule]       [pollRate/sensitivity/Mode]      <Mode> (<uint> <uint> <uint>)
+    [<sensor>/system]        [set/get/schedule]       [pollRate/sensitivity/Mode]      [<Mode>/<uint>] <uint> <uint>
     [<sensor>/system]              demand
 */
 
@@ -85,9 +85,8 @@ enum Action : int
 enum Attr_Name : int
 {
   ATTR_NAME_INVALID,
-  ATTR_NAME_POLL_FREQ,
+  ATTR_NAME_POLL_PERIOD,
   ATTR_NAME_SENSITIVITY,
-  ATTR_NAME_ENABLE,
   ATTR_NAME_MODE,
   ATTR_NAME_SENTINEL,
 };
@@ -99,6 +98,8 @@ enum Attr_Val : int
   ATTR_VAL_SNS_TRIG,
   ATTR_VAL_SNS_POLL,
   ATTR_VAL_SNS_TRIGPOLL,
+  ATTR_VAL_ENABLE,
+  ATTR_VAL_DISABLE,
   ATTR_VAL_SYS_NORMAL,
   ATTR_VAL_SYS_MAINT,
   ATTR_VAL_SYS_QUIET,
@@ -132,13 +133,13 @@ extern uint8_t peripheral_mac[];
 // packed tells the system to ignore all internal padding
 struct __attribute__((packed)) Ctrlr_Msg
 {
-  Target target;
-  Action action;
-  Attr_Name attr_name;
-  Attr_Val attr_val;
-  int val1; // Can hold pollRate, sensitivity, etc.
-  int val2;
-  int val3;
+  Target target = TARGET_INVALID;
+  Action action = ACTION_INVALID;
+  Attr_Name attr_name = ATTR_NAME_INVALID;
+  Attr_Val attr_val = ATTR_VAL_INVALID;
+  int val1 = -1; // Can hold pollRate, sensitivity, etc.
+  int val2 = -1;
+  int val3 = -1;
 };
 
 /*
@@ -150,21 +151,28 @@ struct __attribute__((packed)) Peri_Msg
 {
   bool recv_msg_error = true;
   
-  ReadingType readingType = READING_INVALID;
+  ReadingType sensorReadingType[NUM_OF_SENSORS + INVALID_OFFSET] = {READING_INVALID};
 
   bool sensorEnabled[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
+  // TODO: This does not initialize every element to -1. Must loop through and initialize
   int sensorData[NUM_OF_SENSORS + INVALID_OFFSET] = {-1};
   bool sensorDetected[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
   int numOfDetectInPeriod[NUM_OF_SENSORS + INVALID_OFFSET] = {-1};
 
-  int getResult[NUM_OF_TARGETS] = {-1};
+  int getResult[NUM_OF_TARGETS + INVALID_OFFSET] = {-1};
 
 };
 
+
+#define TARGET_NAMES_COUNT 4
+#define ACTION_NAMES_COUNT 4
+#define ATTR_NAMES_COUNT 4
+#define ATTR_VALS_COUNT 10
+
 // these exist and are defined in a different file - used for human translation
-extern String targetNames[];
-extern String actionNames[];
-extern String AttributeNames[];
-extern String AttributeValues[];
+extern String targetNames[TARGET_NAMES_COUNT];
+extern String actionNames[ACTION_NAMES_COUNT];
+extern String AttributeNames[ATTR_NAMES_COUNT];
+extern String AttributeValues[ATTR_VALS_COUNT];
 
 void tokenize(String str, String arr[], int size);
