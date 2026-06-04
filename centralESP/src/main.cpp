@@ -347,7 +347,7 @@ void loop()
       return;
     }
 
-for (int i = 1; i <= NUM_OF_SENSORS; i++)
+    for (int i = 1; i <= NUM_OF_SENSORS; i++)
     {
       // if Sensor DEMAND
       if (msg_from_peri.sensorReadingType[i] == READING_DEMAND)
@@ -387,7 +387,7 @@ for (int i = 1; i <= NUM_OF_SENSORS; i++)
 
     for (int i = 1; i <= NUM_OF_TARGETS; i++)
     {
-      if (msg_from_peri.getResult[i])
+      if (msg_from_peri.getResult[i] != -1)
       {
         if (expectedGetAttribute == ATTR_NAME_MODE)
         { 

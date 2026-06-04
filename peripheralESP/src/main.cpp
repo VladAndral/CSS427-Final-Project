@@ -3,6 +3,7 @@
 #include "Photo.h"
 #include "RF.h"
 #include "SensorSystem.h"
+#include <utils.h>
 
 // ISRs (Kept in IRAM)
 void IRAM_ATTR pir_ISR() { sns_intr_flag[SENSOR_PIR] = true; }
@@ -66,6 +67,7 @@ Peri_Msg new_msg_to_ctrlr()
 {
   // {0} guarantees every single bit in the struct is safely zeroed out
   Peri_Msg toReturn;
+  init_PeriMsg(toReturn);
   
   for (int i = 1; i <= NUM_OF_SENSORS; i++)
   toReturn.sensorReadingType[i] = sensorArray[i]->getReadingType();
@@ -125,6 +127,7 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
     
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_PERIOD)
     {
+      // TODO: Do for sensitivity
       if (msg_from_ctrlr.val1 != sensorArray[curTarget]->getPollPeriod())
         system_mode = ATTR_VAL_SYS_CUSTOM;
       sensorArray[curTarget]->setPollPeriod(msg_from_ctrlr.val1);
@@ -202,7 +205,7 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         break;
       }
     }
-    system_mode = msg_from_ctrlr.attr_val;
+    // system_mode = msg_from_ctrlr.attr_val;
     msg_to_ctrlr.sensorReadingType[curTarget] = READING_INVALID;
   }
   

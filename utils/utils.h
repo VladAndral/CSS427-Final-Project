@@ -158,12 +158,14 @@ struct __attribute__((packed)) Peri_Msg
 {
   bool recv_msg_error = true;
   
+  // Works b/c _INVALID is 0
   ReadingType sensorReadingType[NUM_OF_SENSORS + INVALID_OFFSET] = {READING_INVALID};
 
-  bool sensorEnabled[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
+  // Works b/c init to 0 and 0 is false
+  bool sensorEnabled[NUM_OF_SENSORS + INVALID_OFFSET] = {0};
   // TODO: This does not initialize every element to -1. Must loop through and initialize
   int sensorData[NUM_OF_SENSORS + INVALID_OFFSET] = {-1};
-  bool sensorDetected[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
+  bool sensorDetected[NUM_OF_SENSORS + INVALID_OFFSET] = {0};
   int numOfDetectInPeriod[NUM_OF_SENSORS + INVALID_OFFSET] = {-1};
 
   int getResult[NUM_OF_TARGETS + INVALID_OFFSET] = {-1};
@@ -177,3 +179,4 @@ extern String AttributeNames[ATTR_NAMES_COUNT];
 extern String AttributeValues[ATTR_VALS_COUNT];
 
 void tokenize(String str, String arr[], int size);
+void init_PeriMsg(Peri_Msg &msg);
