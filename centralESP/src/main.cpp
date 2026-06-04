@@ -29,17 +29,6 @@ bool receivedData = false;
 
 Attr_Name expectedGetAttribute = ATTR_NAME_INVALID;
 
-bool dummyFunctions(String dum1[TOK_ARR_SIZE], int &dum2, Ctrlr_Msg &msg)
-{
-  Serial.println("You've hit a dummy function...");
-  return false;
-}
-/*
-    Array of pointers to functions that will build a message to be sent to the
-    peripheral. Message will not be sent if any inputs are invalid.
-*/
-bool (*buildMsg_funcArr[5])(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg) = {dummyFunctions};
-
 // Callback function
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
@@ -76,6 +65,12 @@ Ctrlr_Msg newMsgToPeri()
 {
   Ctrlr_Msg toReturn;
   return toReturn;
+}
+
+/// @brief Send the global message to the peripheral
+void sendMsgStructToPeri(Ctrlr_Msg &msg_to_peri)
+{
+  ESPNow.send_message(peripheral_mac, (uint8_t *)&msg_to_peri, sizeof(msg_to_peri));
 }
 
 /*
@@ -146,18 +141,12 @@ Attr_Val getAttrVal(String parameter, Target target)
   return ATTR_VAL_INVALID;
 }
 
-/// @brief Send the global message to the peripheral
-void sendMsgStructToPeri(Ctrlr_Msg &msg_to_peri)
-{
-  ESPNow.send_message(peripheral_mac, (uint8_t *)&msg_to_peri, sizeof(msg_to_peri));
-}
-
 /// @brief Fills the message object's fields with user's inputs, interpreting as a sensor request.
 /// If an input is not valid, message should not be sent. This method does not send the message
 /// @param tokenArray Array of all tokens
 /// @param arrPos Reference to position tracking variable
 /// @return False if any part of the message is invalid (should not be sent)
-bool buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_peri)
+bool buildMsg(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_peri)
 {
   /*
       PARSING: Action
@@ -204,71 +193,6 @@ bool buildMsg_sensor(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &ms
     }
 
     msg_to_peri.val1 = value;
-
-    if (action == ACTION_SCHEDULE)
-    {
-      int userTime = tokenArray[arrPos++].toInt();
-
-      if (!userTime)
-      {
-        Serial.println("invalid schedule time");
-        return false;
-      }
-
-      msg_to_peri.val1 = userTime;
-    }
-  }
-
-  return true;
-}
-
-/// @brief Fills the message object's fields with user's inputs, interpreting as a system request.
-/// If an input is not valid, message should not be sent. This method does not send the message
-/// @param tokenArray Array of all tokens
-/// @param arrPos Reference to position tracking variable
-/// @return False if any part of the message is invalid (should not be sent)
-bool buildMsg_system(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_peri)
-{
-  /*
-      PARSING: Action
-  */
-  action = getAction(tokenArray[arrPos++], target);
-
-  if (action == ACTION_INVALID)
-  {
-    Serial.println("Invalid action.");
-    return false;
-  }
-
-  msg_to_peri.action = action;
-
-  /*
-      PARSING: Attribute name
-  */
-  attr_name = getAttrName(tokenArray[arrPos++], target);
-
-  if (attr_name == ATTR_NAME_INVALID)
-  {
-    Serial.println("Invalid attribute name.");
-    return false;
-  }
-
-  msg_to_peri.attr_name = attr_name;
-
-  if (action != ACTION_GET)
-  {
-    /*
-        PARSING: Attribute value
-    */
-    Attr_Val attr_val = getAttrVal(tokenArray[arrPos++], target);
-
-    if (attr_val == ATTR_VAL_INVALID)
-    {
-      Serial.println("Invalid attribute value.");
-      return false;
-    }
-
-    msg_to_peri.attr_val = attr_val;
 
     if (action == ACTION_SCHEDULE)
     {
@@ -341,12 +265,6 @@ void setup()
   testMsg.target = TARGET_INVALID;
   // Test
   sendMsgStructToPeri(testMsg);
-
-  for (int i = INVALID_OFFSET; i <= SENSOR_RF; i++)
-  {
-    buildMsg_funcArr[i] = buildMsg_sensor;
-  }
-  buildMsg_funcArr[TARGET_SYSTEM] = buildMsg_system;
 }
 
 void loop()
@@ -389,7 +307,7 @@ void loop()
       msg_to_peri.target = target;
 
       // Call the function that corresponds to the target
-      bool validMessage = buildMsg_funcArr[target](tokenArray, arrPos, msg_to_peri);
+      bool validMessage = buildMsg(tokenArray, arrPos, msg_to_peri);
 
       if (validMessage)
       {
