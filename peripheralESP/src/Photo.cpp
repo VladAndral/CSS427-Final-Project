@@ -8,7 +8,13 @@ Photo::Photo(int pin, volatile bool* intrFlag) : SensorBase(pin, intrFlag)
 
 float Photo::getReading()
 {
-    return (float)analogRead(pin_num);
+    // Read the analog value
+    float reading = (float)analogRead(pin_num);
+    
+    // FIX: Re-enable the digital input buffer so interrupts continue to fire
+    pinMode(pin_num, INPUT);
+    
+    return reading;
 }
 
 bool Photo::calibrate()
@@ -26,6 +32,9 @@ bool Photo::calibrate()
         count++;
         end_time = millis();
     }
+    
+    // FIX: Re-enable the digital input buffer after calibration is finished
+    pinMode(pin_num, INPUT);
     
     noiseFloor = reading / count;
     trigMin = noiseFloor * 1.2;

@@ -10,7 +10,7 @@ RF::RF(int pin, volatile bool *intrFlag) : SensorBase(pin, intrFlag)
 
 bool RF::rf_updateTokens()
 {
-  Serial2.write("reading");
+  sendMsgToPi("reading");
 
   // Guardrail: UART Timeout
   unsigned long waitStart = millis();
@@ -33,7 +33,7 @@ bool RF::rf_updateTokens()
   {
     if (curChar == ',')
     {
-      rfDataTokens[tokenPos++] = token;
+      if (tokenPos < 5) rfDataTokens[tokenPos++] = token;
       token = "";
     }
     else
@@ -41,7 +41,7 @@ bool RF::rf_updateTokens()
       token += curChar;
     }
   }
-  rfDataTokens[tokenPos] = token;
+  if (tokenPos < 6) rfDataTokens[tokenPos] = token;
 
   // Update internal clock automatically
   if (rfDataTokens[0] != "")
@@ -93,4 +93,10 @@ bool RF::calibrate()
   trigMax = noiseFloor * 10;
   sensitivityStep = (trigMax - trigMin) / 100;
   return true;
+}
+
+void RF::sendMsgToPi(String msg)
+{
+  msg += "~";
+  Serial2.print(msg);
 }

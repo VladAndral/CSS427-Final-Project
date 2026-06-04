@@ -83,7 +83,7 @@ class HackRFSweepReader:
             num_lines (int, optional): Specify how many lines of data to return. Defaults to 1.
 
         Returns:
-            (str | list[str]): If num_lines == 1, will return the line in string format. If num_lines > 1, returns a list of lines in string format
+            (list[str]): If num_lines == 1, will return the line in string format. If num_lines > 1, returns a list of lines in string format
         """
         # Convert the current state of the deque to a list and slice the end
         current_data = list(self.data_buffer)
@@ -133,7 +133,8 @@ def format_line_for_peri(raw_line:str):
         # 2. Extract Power Data (dBFS)
         # We iterate from index 6 to the end, converting to float
         # 'if x' handles any trailing commas that might create empty strings
-        dbfs_values = [f"{float(x)}" for x in parts[6:] if x]
+        # 6:10 b/c hackrf could potentially output more than 5 readings
+        dbfs_values = [f"{float(x)}" for x in parts[6:10] if x]
         
         for val in dbfs_values:
             toReturn += val + ","
@@ -171,6 +172,8 @@ def main(scanner:HackRFSweepReader):
                     exit()
                 elif userMsg == "reading":
                     reading = format_line_for_peri(scanner.get_latest_reading())
+                    if not reading:          
+                        reading = "~"   # Send an empty terminator so ESP32 doesn't block!
                     print(f"Sending {reading}")
                     serObj.write(reading.encode())
                 else:

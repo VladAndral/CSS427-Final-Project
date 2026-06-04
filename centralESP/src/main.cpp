@@ -347,40 +347,40 @@ void loop()
       return;
     }
 
-    for (int i = 1; i <= NUM_OF_SENSORS; i++)
+for (int i = 1; i <= NUM_OF_SENSORS; i++)
     {
       // if Sensor DEMAND
       if (msg_from_peri.sensorReadingType[i] == READING_DEMAND)
       {
         Serial.print("\n[ON-DEMAND REPORT] -> ");
-          // Only display sensors that got readings
-          // This way, we don't need to discriminate between sensor or system command
           if (msg_from_peri.sensorData[i] != -1)
           {
             String sensorName = getSensorName((Target)i);
-            Serial.printf("%s Current Value: %d\n", sensorName, msg_from_peri.sensorData[i]);
+            // FIX: Added .c_str()
+            Serial.printf("%s Current Value: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
           }
       }
-      else if(msg_from_peri.sensorReadingType[i] == READING_TRIG || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL){
+      if(msg_from_peri.sensorReadingType[i] == READING_TRIG || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL){
         if(msg_from_peri.sensorData[i] != -1){
-          const char *sensorName = getSensorName((Target)i).c_str();
+          // FIX: Saved String first, called .c_str() later
+          String sensorName = getSensorName((Target)i);
 
           if (msg_from_peri.sensorDetected[i])
           {
-            Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------", sensorName);
+            Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
           }
           else
           {
-            Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------", sensorName);
+            Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
           }
         }
       }
-      else if(msg_from_peri.sensorReadingType[i] == READING_POLL || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL){
+      if(msg_from_peri.sensorReadingType[i] == READING_POLL || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL){
         if(msg_from_peri.sensorData[i] != -1){
-          const char *sensorName = getSensorName((Target)i).c_str();
-          Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName, msg_from_peri.numOfDetectInPeriod[i]);
-          //need to print the sensor value at that time interval. 
-          Serial.printf("%s data is: %d\n", sensorName, msg_from_peri.sensorData[i]);        
+          // FIX: Saved String first, called .c_str() later
+          String sensorName = getSensorName((Target)i);
+          Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName.c_str(), msg_from_peri.numOfDetectInPeriod[i]);
+          Serial.printf("%s data is: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);        
         }
       }
     }
@@ -392,8 +392,8 @@ void loop()
         if (expectedGetAttribute == ATTR_NAME_MODE)
         { 
           String mode = AttributeValues[msg_from_peri.getResult[TARGET_SYSTEM] - 1];
-          Serial.printf("System's mode is: %s\n\n", mode);
-          // Break out of the loop because only system will do mode
+          // FIX: Added .c_str()
+          Serial.printf("System's mode is: %s\n\n", mode.c_str());
           break;
         }
 
@@ -401,9 +401,10 @@ void loop()
         {
           Serial.print("\n[GET COMMAND RESULT] -> \n");
           String targetName = getSensorName((Target)i);
-          
           int result = msg_from_peri.getResult[i];
-          Serial.printf("%s Property is: %d\n\n", targetName, result);
+          
+          // FIX: Added .c_str()
+          Serial.printf("%s Property is: %d\n\n", targetName.c_str(), result);
         }
         else
         {

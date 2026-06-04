@@ -22,4 +22,5 @@ public:
     
     int getClockHour() const { return clock_hour; }
     int getClockMinute() const { return clock_minute; }
+    void sendMsgToPi(String msg);
 };

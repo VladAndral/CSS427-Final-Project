@@ -56,6 +56,12 @@ void sendLogMsgToCtrlr(String logMsg)
   ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
 }
 
+void sendMsgToPi(String msg)
+{
+  msg += "~";
+  Serial2.print(msg);
+}
+
 Peri_Msg new_msg_to_ctrlr()
 {
   // {0} guarantees every single bit in the struct is safely zeroed out
@@ -280,7 +286,7 @@ void setup()
   sensorArray[SENSOR_RF]->setPollPeriod(2000);
 
   pinMode(PIR_BOARD_PIN, INPUT);
-  pinMode(PHOTO_BOARD_PIN, INPUT_PULLDOWN);
+  pinMode(PHOTO_BOARD_PIN, INPUT);
   pinMode(RF_BOARD_PIN, INPUT_PULLDOWN);
 
   attachInterrupt(digitalPinToInterrupt(PIR_BOARD_PIN), pir_ISR, RISING);
@@ -314,6 +320,11 @@ void setup()
     sensorArray[i]->setCalibrationError(!calibrated);
     sensorArray[i]->setEnabled(calibrated);
 
+    if (calibrated) {
+      sensorArray[i]->setPollingEnabled(true);
+      sensorArray[i]->setReadingType(READING_POLL);
+    }
+
     sendLogMsgToCtrlr(logMsg);
     delay(10);
   }
@@ -338,7 +349,7 @@ void loop()
     userInput.trim();
     if (userInput.length())
     {
-      Serial2.print(userInput + "~");
+      sendMsgToPi(userInput);
     }
   }
 
