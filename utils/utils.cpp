@@ -20,7 +20,6 @@ String actionNames[] = {
 String AttributeNames[]{
   "pollrate",
   "sensitivity",
-  "enable",
   "mode"
 };
 

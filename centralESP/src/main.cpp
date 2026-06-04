@@ -184,15 +184,31 @@ bool buildMsg(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_pe
     /*
         PARSING: Attribute value
     */
-    int value = tokenArray[arrPos++].toInt();
 
-    if (!value)
+    if (attr_name == ATTR_NAME_MODE)
     {
-      Serial.println("Invalid integer value.");
-      return false;
+      Attr_Val userMode = getAttrVal(tokenArray[arrPos++], target);
+      
+      if (userMode == ATTR_VAL_INVALID) 
+      {
+        Serial.println("Invalid mode value.");
+        return false;
+      }
+      
+      msg_to_peri.attr_val = userMode;
     }
-
-    msg_to_peri.val1 = value;
+    else
+    { 
+      int value = tokenArray[arrPos++].toInt();
+      
+      if (!value)
+      {
+        Serial.println("Invalid integer value.");
+        return false;
+      }
+      
+      msg_to_peri.val1 = value;
+    }
 
     if (action == ACTION_SCHEDULE)
     {
@@ -204,7 +220,7 @@ bool buildMsg(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_pe
         return false;
       }
 
-      msg_to_peri.val1 = userTime;
+      msg_to_peri.val2 = userTime;
     }
   }
 
@@ -367,8 +383,11 @@ void loop()
           Serial.printf("%s data is: %d\n", sensorName, msg_from_peri.sensorData[i]);        
         }
       }
-      //get reading
-      else if (msg_from_peri.sensorReadingType[i] == READING_GET || expectedGetAttribute == ATTR_NAME_MODE)
+    }
+
+    for (int i = 1; i <= NUM_OF_TARGETS; i++)
+    {
+      if (msg_from_peri.getResult[i])
       {
         if (expectedGetAttribute == ATTR_NAME_MODE)
         { 

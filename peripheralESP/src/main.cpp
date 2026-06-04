@@ -130,7 +130,7 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
     {
-      switch (msg_from_ctrlr.val1)
+      switch (msg_from_ctrlr.attr_val)
       {
       case ATTR_VAL_SNS_TRIG:
         sensorArray[curTarget]->setReadingType(READING_TRIG);
@@ -196,6 +196,7 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         break;
       }
     }
+    system_mode = msg_from_ctrlr.attr_val;
     msg_to_ctrlr.sensorReadingType[curTarget] = READING_INVALID;
   }
   

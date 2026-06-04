@@ -54,6 +54,7 @@ Count is for function pointer array
 // note that for the Target_sentinal to matter, we would change and not set any of these
 // options to numbers, and instead leave them blank and enum would auto increment each one
 
+#define TARGET_NAMES_COUNT TARGET_SENTINEL-1
 enum Target : int
 {
   TARGET_INVALID,
@@ -61,9 +62,10 @@ enum Target : int
   SENSOR_PHOTO,
   SENSOR_RF,
   TARGET_SYSTEM,
-  TARGET_SENTINEL,
+  TARGET_SENTINEL
 };
 
+#define ACTION_NAMES_COUNT ACTION_SENTINEL-1
 // same thing here, can delete all the numbers because enum does the same thing
 enum Action : int
 {
@@ -72,6 +74,7 @@ enum Action : int
   ACTION_SET,
   ACTION_GET,
   ACTION_SCHEDULE,
+  ACTION_SENTINEL
 };
 
 /*
@@ -82,6 +85,8 @@ enum Action : int
 #define ATTR_NAME_OFFSET_SNS 0
 #define ATTR_NAME_OFFSET_SYS 2
 
+
+#define ATTR_NAMES_COUNT ATTR_NAME_SENTINEL-1
 enum Attr_Name : int
 {
   ATTR_NAME_INVALID,
@@ -91,7 +96,8 @@ enum Attr_Name : int
   ATTR_NAME_SENTINEL,
 };
 
-#define ATTR_VAL_OFFSET_SYS 3
+#define ATTR_VALS_COUNT ATTR_VAL_SENTINEL-1
+#define ATTR_VALS_OFFSET_SYS 3
 enum Attr_Val : int
 {
   ATTR_VAL_INVALID,
@@ -105,6 +111,7 @@ enum Attr_Val : int
   ATTR_VAL_SYS_QUIET,
   ATTR_VAL_SYS_LOCKDOWN,
   ATTR_VAL_SYS_CUSTOM,
+  ATTR_VAL_SENTINEL
 };
 
 /*
@@ -162,12 +169,6 @@ struct __attribute__((packed)) Peri_Msg
   int getResult[NUM_OF_TARGETS + INVALID_OFFSET] = {-1};
 
 };
-
-
-#define TARGET_NAMES_COUNT 4
-#define ACTION_NAMES_COUNT 4
-#define ATTR_NAMES_COUNT 4
-#define ATTR_VALS_COUNT 10
 
 // these exist and are defined in a different file - used for human translation
 extern String targetNames[TARGET_NAMES_COUNT];
