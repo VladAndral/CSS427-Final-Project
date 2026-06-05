@@ -71,6 +71,7 @@ public:
   uint32_t getPollPeriod() const;
   virtual void setSensitivity(int sensitivity);
   virtual int getSensitivity() const;
+  virtual void increaseSensitivityLevel(int level);
   
   unsigned long getDebouncePeriod_ms() const;
 

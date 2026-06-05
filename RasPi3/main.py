@@ -21,6 +21,10 @@ PERI_INTR_TRIG_PIN = LED("GPIO17")
 
 serObj = serial.Serial('/dev/serial0', 115200, timeout=1)
 
+dbfsDataNums:list[float] = []
+
+INTR_TRIG_LEVEL = -40.0
+
 class HackRFSweepReader:
     def __init__(self, sweep_args, buffer_size=1000):
         # deque with maxlen acts as a circular buffer. 
@@ -134,7 +138,9 @@ def format_line_for_peri(raw_line:str):
         # We iterate from index 6 to the end, converting to float
         # 'if x' handles any trailing commas that might create empty strings
         # 6:10 b/c hackrf could potentially output more than 5 readings
-        dbfs_values = [f"{float(x)}" for x in parts[6:10] if x]
+        dbfs_values = [f"{float(x)}" for x in parts[6:11] if x]
+        global dbfsDataNums
+        dbfsDataNums = [float(x) for x in parts[6:11] if x]
         
         for val in dbfs_values:
             toReturn += val + ","
@@ -147,6 +153,12 @@ def format_line_for_peri(raw_line:str):
     except (ValueError, IndexError):
         # Catch errors from partial lines written right as the process is stopped
         return ""
+    
+def getAvgPowerReading():
+    if (len(dbfsDataNums)):
+        return sum(dbfsDataNums)/len(dbfsDataNums)
+    return 999.9
+    
             
 def main(scanner:HackRFSweepReader):
     # try:
@@ -178,6 +190,11 @@ def main(scanner:HackRFSweepReader):
                     serObj.write(reading.encode())
                 else:
                     print("Idk what that is")
+            
+            if (getAvgPowerReading() > INTR_TRIG_LEVEL):
+                PERI_INTR_TRIG_PIN.on()
+                # time.sleep(0.001)
+                PERI_INTR_TRIG_PIN.off()
             
     # except KeyboardInterrupt:
     #     print("\nKeyboard Interrupt. Stopping...")

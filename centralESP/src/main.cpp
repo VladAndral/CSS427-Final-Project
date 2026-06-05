@@ -200,9 +200,9 @@ bool buildMsg(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_pe
     { 
       int value = tokenArray[arrPos++].toInt();
       
-      if (!value)
+      if (value < 1)
       {
-        Serial.println("Invalid integer value.");
+        Serial.println("Invalid positive nonzero integer value.");
         return false;
       }
       
@@ -429,7 +429,7 @@ void loop()
       if (msg_from_peri.getResult[i] != -1)
       {
         String targetName = getTargetName((Target)i);
-        Serial.printf("Target name: %s\n", targetName.c_str());
+        // Serial.printf("Target name: %s\n", targetName.c_str());
         int result = msg_from_peri.getResult[i];
 
         if (expectedGetAttribute == ATTR_NAME_MODE)
@@ -450,7 +450,7 @@ void loop()
         }
         else if (expectedGetAttribute == ATTR_NAME_POLL_PERIOD)
         {
-          Serial.printf("%s polls every %d ms\n", targetName.c_str(), result);
+          Serial.printf("%s polls every %dms\n", targetName.c_str(), result);
         }
         else if (expectedGetAttribute == ATTR_NAME_SENSITIVITY)
         {

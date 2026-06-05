@@ -15,6 +15,7 @@ PIR pirSensor(PIR_BOARD_PIN, &sns_intr_flag[SENSOR_PIR]);
 Photo photoSensor(PHOTO_BOARD_PIN, &sns_intr_flag[SENSOR_PHOTO]);
 RF rfSensor(RF_BOARD_PIN, &sns_intr_flag[SENSOR_RF]);
 
+// `ARRAY INDEX ZERO AND LAST INDEX IS NULLPTR!!!`
 // We size to NUM_OF_TARGETS + 1 so the enums (1 = PIR, 2 = Photo, 3 = RF) match the indices perfectly
 SensorBase *sensorArray[NUM_OF_TARGETS + 1] = {
   nullptr,
@@ -74,6 +75,234 @@ Peri_Msg new_msg_to_ctrlr()
   
   return toReturn;
 }
+
+// =========================================================================
+// CATEGORY 1: MANDATORY SENSOR BEHAVIORS (9 Points)
+// =========================================================================
+
+String behaviorPIRMotionEscalation() {
+  String toReturn = "";
+
+  static unsigned long prevEscalation = millis();
+
+  if (millis()-prevEscalation > 6000 && system_mode == ATTR_VAL_SYS_NORMAL && sns_intr_count[SENSOR_PIR]) {
+    int currentRFPoll = sensorArray[SENSOR_RF]->getPollPeriod();
+    if (currentRFPoll >= 200) { 
+      sensorArray[SENSOR_RF]->setPollPeriod(currentRFPoll / 2);
+      toReturn = "Auto-Behavior: PIR detected motion. Doubled RF scan rate!";
+      prevEscalation = millis();
+    }
+  }
+
+  return toReturn;
+}
+
+String behaviorLaserBreakLockdown(bool sensorTripped[]) {
+  String toReturn = "";
+
+  if (sensorTripped[SENSOR_PHOTO] && (system_mode == ATTR_VAL_SYS_QUIET || inPowerSaveMode)) {
+    system_mode = ATTR_VAL_SYS_LOCKDOWN;
+
+    lastMotionTime = millis();
+
+    for (int i = 1; i <= NUM_OF_SENSORS; i++)
+    {
+      sensorArray[i]->setReadingType(READING_TRIGPOLL);
+      sensorArray[i]->setSendOnIntr(true);
+      sensorArray[i]->setPollPeriod(lockdownPollPeriod_ms);
+      sensorArray[i]->setSensitivity(trigMin[i] + sensitivityStep[i]);
+    }
+    toReturn = "Laser tripped in QUIET mode! Forced LOCKDOWN mode.";
+  }
+
+  return toReturn;
+}
+
+// TODO:
+String behaviorRFSpikeDefense() {
+  String toReturn = "";
+
+  static unsigned long prevSpike = millis();
+
+  if (millis() - prevSpike > 2000)
+  {
+    if (sns_intr_count[SENSOR_RF] > 3) {
+      sensorArray[SENSOR_PIR]->increaseSensitivityLevel(20);
+      sensorArray[SENSOR_PHOTO]->increaseSensitivityLevel(20);
+      toReturn = "Auto-Behavior: High RF traffic detected! Boosted PIR & Photo sensitivity.";
+      prevSpike = millis(); 
+    }
+  }
+
+  return toReturn;
+}
+
+// // =========================================================================
+// // CATEGORY 2: OPEN-FEATURE BEHAVIORS (10 Points)
+// // =========================================================================
+
+String behaviorIdlePowerSave() {
+  String toReturn = "";
+
+  bool allDisabled = true;
+  for (int i = 1; i <= NUM_OF_SENSORS; i++)
+  {
+    if (sensorArray[i]->isEnabled())
+    {
+      allDisabled = false;
+      break;
+    }
+  }
+
+  if (!allDisabled &&
+    millis() - lastMotionTime > 12000 &&
+    sensorArray[SENSOR_PIR]->getPollPeriod() <= 3000 &&
+    !inPowerSaveMode &&
+    system_mode != ATTR_VAL_SYS_LOCKDOWN &&
+    system_mode != ATTR_VAL_SYS_MAINT &&
+    system_mode != ATTR_VAL_SYS_CUSTOM)
+  {
+    system_mode = ATTR_VAL_SYS_CUSTOM;
+    sensorArray[SENSOR_PIR]->setPollPeriod(5000);
+    sensorArray[SENSOR_PHOTO]->setPollPeriod(5000);
+    sensorArray[SENSOR_RF]->setPollPeriod(5000);
+    inPowerSaveMode = true;
+    toReturn = "Auto-Behavior: 12 seconds of no motion. Throttled polling to save power.";
+    Serial.println(toReturn);
+  }
+  else
+  {
+    inPowerSaveMode = false;
+  }
+  return toReturn;
+}
+
+String behaviorRecalibrate() {
+  // A static variable remembers its value even after the function finishes
+  // periClock[0] is Hours, periClock[1] is Minutes
+  String toReturn = "";
+
+  static bool alreadyReset = false;
+
+  if (!(periClock[1]%5)) {
+    if (!alreadyReset)
+    {
+      alreadyReset = true;
+      // Serial.println("Auto-Behavior: Five-minute reset. Recalibrating sensor.");
+      sendLogMsgToCtrlr("Auto-Behavior: Five-minute reset. Recalibrating sensor.");
+      toReturn = "Recalibration: ";
+      
+      for (int i = 1; i <= NUM_OF_SENSORS; i++)
+      {
+        sensorArray[i]->setPollPeriod(2000);
+        toReturn += targetNames[i-1];
+        toReturn += ": ";
+        toReturn += sensorArray[i]->calibrate() ? "Passed; " : "Failed; ";
+      }
+      lastMotionTime = millis();
+    }
+  }
+  else
+  {
+    alreadyReset = false;
+  }
+  return toReturn;
+}
+
+String behaviorLEDMultipleEvents(int sensorTrippedCount[])
+{
+  String toReturn = "";
+  static unsigned long ledTurnOnTime = 0;
+  static bool ledIsOn = false;
+  static unsigned long lastClearTime = millis(); // Universal clear timer
+
+  int sensorsTripped = 0;
+
+  // 1. Evaluate the total state BEFORE touching the LED
+  for (int i = 1; i <= NUM_OF_SENSORS; i++)
+  {
+    if (sensorArray[i]->isEnabled() && sensorTrippedCount[i] > 0)
+    {
+      sensorsTripped++;
+    }
+  }
+
+  // 2. Turn ON logic: If 2 or more sensors tripped AND the LED isn't already on
+  if (sensorsTripped >= 2 && !ledIsOn)
+  {
+    digitalWrite(LED_BOARD_PIN, HIGH);
+    ledIsOn = true;
+    ledTurnOnTime = millis();
+    toReturn = "Auto-Behavior: Multiple events detected. LED ON.";
+  }
+
+  // 3. The GUARANTEE: Turn OFF logic based strictly on an independent timer
+  if (ledIsOn && (millis() - ledTurnOnTime >= 3000))
+  {
+    digitalWrite(LED_BOARD_PIN, LOW);
+    ledIsOn = false;
+  }
+
+  // 4. Fix the State-Leak: Periodically clear counts for non-polling (TRIG) sensors
+  // We simulate a 2-second "poll cycle" to clear the arrays so interrupts 
+  // don't stack to infinity and permanently lock your behaviors.
+  if (millis() - lastClearTime >= 2000)
+  {
+    for (int i = 1; i <= NUM_OF_SENSORS; i++)
+    {
+      if (sensorArray[i]->isEnabled() && !sensorArray[i]->isPollingEnabled())
+      {
+        sensorTrippedCount[i] = 0;
+      }
+    }
+    lastClearTime = millis();
+  }
+
+  return toReturn;
+}
+
+String behaviorAutoResetVault(int sensorInterruptCount[]) {
+
+  String toReturn = "";
+
+  if (system_mode == ATTR_VAL_SYS_LOCKDOWN)
+  {
+    static int totalNumOfIntr = 0;
+    if (millis()-lastMotionTime < 10000)
+    {
+      for (int i = 1; i <= NUM_OF_SENSORS; i++)
+      {
+        totalNumOfIntr += sensorInterruptCount[i];
+      }
+      if (totalNumOfIntr > 1)
+      {
+        totalNumOfIntr = 0;
+        lastMotionTime = millis();
+      }
+    }
+    else
+    {
+      
+      totalNumOfIntr = 0;
+      system_mode = ATTR_VAL_SYS_NORMAL;
+      
+      for (int i = 1; i <= NUM_OF_SENSORS; i++)
+      {
+        sensorArray[i]->setPollPeriod(normalPollPeriod_ms);
+        sensorArray[i]->setReadingType(READING_TRIGPOLL);
+        sensorArray[i]->setSendOnIntr(true);
+      }
+      
+      toReturn = "Auto-Behavior: Vault secured and 10s clear of motion. Autonomously returning to NORMAL mode.";
+      lastMotionTime = millis();
+    }
+  }
+  
+  return toReturn;
+}
+
+
+
 /**********************************
     COMMANDS
 **********************************/
@@ -108,6 +337,8 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
   
   Target target = msg_from_ctrlr.target;
 
+  if (target == SENSOR_PIR || target == TARGET_SYSTEM) lastMotionTime = millis();
+
   int curTarget = (target == TARGET_SYSTEM) ? 1 : target;
   int end = (target == TARGET_SYSTEM) ? NUM_OF_SENSORS : target;
   
@@ -135,6 +366,7 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         system_mode = ATTR_VAL_SYS_CUSTOM;
       }
       sensorArray[curTarget]->setPollPeriod(msg_from_ctrlr.val1);
+      if (target = SENSOR_PIR) lastMotionTime = millis();
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
@@ -178,11 +410,9 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         sensorArray[curTarget]->setEnabled(false);
         break;
       case ATTR_VAL_SYS_NORMAL:
-        sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
-        sensorArray[curTarget]->setEnabled(true);
-        sensorArray[curTarget]->setPollingEnabled(true);
-        sensorArray[curTarget]->setSendOnIntr(true);
         sensorArray[curTarget]->setPollPeriod(normalPollPeriod_ms);
+        sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
+        sensorArray[curTarget]->setSendOnIntr(true);
 
         if (target == TARGET_SYSTEM)
         {
@@ -201,11 +431,9 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         }
         else
         {
-          sensorArray[curTarget]->setReadingType(READING_POLL);
-          sensorArray[curTarget]->setEnabled(true);
-          sensorArray[curTarget]->setPollingEnabled(true);
-          sensorArray[curTarget]->setSendOnIntr(false);
           sensorArray[curTarget]->setPollPeriod(maintPollPeriod_ms);
+          sensorArray[curTarget]->setReadingType(READING_POLL);
+          sensorArray[curTarget]->setSendOnIntr(false);
         }
 
         if (target == TARGET_SYSTEM)
@@ -236,9 +464,10 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         }
         break;
       case ATTR_VAL_SYS_LOCKDOWN:
+        lastMotionTime = millis();
+        sensorArray[curTarget]->setPollPeriod(lockdownPollPeriod_ms);
         sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
         sensorArray[curTarget]->setSendOnIntr(true);
-        sensorArray[curTarget]->setPollPeriod(lockdownPollPeriod_ms);
         sensorArray[curTarget]->setSensitivity(trigMin[curTarget] + sensitivityStep[curTarget]);
         
         if (target == TARGET_SYSTEM)
@@ -289,7 +518,15 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
     {
       if (sensorArray[curTarget]->isSensitivityAdjustable())
         msg_to_ctrlr.getResult[curTarget] = sensorArray[curTarget]->getSensitivity();
+      else
+      {
+        if (target != TARGET_SYSTEM)
+        {
+          rejectionReason = "This sensor does not have adjustable sensitivity.";
+          return false;
+        }
       }
+    }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
     {
       if (target == TARGET_SYSTEM)
@@ -367,18 +604,15 @@ void setup()
   // Register callback functions
   ESPNow.reg_send_cb(onDataSent);
   ESPNow.reg_recv_cb(onRecv);
-  
-  sensorArray[SENSOR_PIR]->setPollPeriod(2000);
-  sensorArray[SENSOR_PHOTO]->setPollPeriod(2000);
-  sensorArray[SENSOR_RF]->setPollPeriod(2000);
 
   pinMode(PIR_BOARD_PIN, INPUT);
   pinMode(PHOTO_BOARD_PIN, INPUT);
   pinMode(RF_BOARD_PIN, INPUT_PULLDOWN);
+  pinMode(LED_BOARD_PIN, OUTPUT);
 
   attachInterrupt(digitalPinToInterrupt(PIR_BOARD_PIN), pir_ISR, RISING);
   attachInterrupt(digitalPinToInterrupt(PHOTO_BOARD_PIN), photo_ISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(RF_BOARD_PIN), rf_ISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(RF_BOARD_PIN), rf_ISR, RISING);
 
 
   executeAction[ACTION_DEMAND] = cmd_demand;
@@ -409,8 +643,7 @@ void setup()
     sensorArray[i]->setEnabled(calibrated);
 
     if (calibrated) {
-      sensorArray[i]->setPollingEnabled(true);
-      sensorArray[i]->setReadingType(READING_POLL);
+      sensorArray[i]->setPollPeriod(2000);
     }
 
     sendLogMsgToCtrlr(logMsg);
@@ -421,6 +654,8 @@ void setup()
 
   Serial.println("worked4");
   sendLogMsgToCtrlr("Peripheral now WORKING...");
+
+  lastMotionTime = millis();
 }
 
 /*
@@ -491,6 +726,8 @@ void loop()
     {
       sensorTripped[i] = true;
       sns_intr_count[i]++;
+
+      if (i == SENSOR_PIR) lastMotionTime = millis();
     }
   }
     
@@ -587,7 +824,46 @@ void loop()
       sendDataStructToController(msg_to_ctrlr_intr);
     }
   }
+  // ==========================================
+  // RUN AUTONOMOUS BEHAVIORS
+  // ==========================================
+  String logMsg = "";
+
+  // Serial.println("Running 1");
+  logMsg = behaviorPIRMotionEscalation();
+  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  delay(5);
   
+  // Serial.println("Running 2");
+  logMsg = behaviorLaserBreakLockdown(sensorTripped);
+  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  delay(5);
+  
+  // Serial.println("Running 3");
+  logMsg = behaviorRFSpikeDefense();
+  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  delay(5);
+  
+  // Serial.println("Running 4");
+  logMsg = behaviorIdlePowerSave();
+  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  delay(5);
+  
+  // Serial.println("Running 5");
+  logMsg = behaviorRecalibrate();
+  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  delay(5);
+  
+  // Serial.println("Running 6");
+  logMsg = behaviorLEDMultipleEvents(sns_intr_count);
+  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  delay(5);
+
+  // Serial.println("Running 7");
+  logMsg = behaviorAutoResetVault(sns_intr_count);
+  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  delay(5);
+
   // // TODO: Do we need this? I think we're double-sending when an interrupt happens
   // if (anyDetection)
   // {

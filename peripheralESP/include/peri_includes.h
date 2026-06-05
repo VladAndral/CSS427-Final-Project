@@ -14,9 +14,10 @@
 Green flag sticky is peripheral
 */
 
-#define PIR_BOARD_PIN 13
-#define PHOTO_BOARD_PIN 34
-#define RF_BOARD_PIN 19
+#define PIR_BOARD_PIN GPIO_NUM_13
+#define PHOTO_BOARD_PIN GPIO_NUM_34
+#define RF_BOARD_PIN GPIO_NUM_19
+#define LED_BOARD_PIN GPIO_NUM_27
 
 /*
     UART Pins for ESP32
@@ -68,6 +69,10 @@ String rfDataTokens[RF_TOKEN_COUNT] = {""};
 Ctrlr_Msg msg_from_ctrlr;
 
 String rejectionReason = "Default";
+
+uint32_t lastMotionTime = 0;
+
+bool inPowerSaveMode = false;
 
 // --- Global Hardware Interrupt Flags ---
 volatile bool sns_intr_flag[NUM_OF_SENSORS + INVALID_OFFSET] = {false};

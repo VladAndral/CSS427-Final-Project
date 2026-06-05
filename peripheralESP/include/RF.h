@@ -2,7 +2,8 @@
 #pragma once
 #include "SensorBase.h"
 
-const float INVALID_RF_READING = 100.0;
+const float INVALID_RF_READING = 999.9;
+const float trigLevel = -50.0;
 
 class RF : public SensorBase
 {

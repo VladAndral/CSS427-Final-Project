@@ -121,6 +121,14 @@ void SensorBase::setSensitivity(int sensitivity)
 
 int SensorBase::getSensitivity() const { return sensitivityLevel; }
 
+void SensorBase::increaseSensitivityLevel(int level)
+{
+    if (sensitivityAdjustable)
+    {
+        sensitivityLevel = (sensitivityLevel + level > 100) ? 100 : sensitivityLevel + level;
+    }
+}
+
 unsigned long SensorBase::getDebouncePeriod_ms() const
 {
     return debouncePeriodLen_ms;
