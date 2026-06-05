@@ -39,6 +39,15 @@ enum ReadingType : int
 
     [<sensor>/system]        [set/get/schedule]       [pollRate/sensitivity/Mode]      [<Mode>/<uint>] <uint> <uint>
     [<sensor>/system]              demand
+    System behavior is autonomous
+
+    // TODO:
+      - Schedule
+      - RasPi interrupt triggering
+      - Network autoscan?
+      - Network jamming?
+      - Add time data to Peri_Msg
+      - Get seconds from HackRF time
 */
 
 #define NUM_OF_TARGETS TARGET_SENTINEL - 1
@@ -153,6 +162,7 @@ struct __attribute__((packed)) Ctrlr_Msg
     A message from the peripheral will contain all data, even if only data
     from one sensor is set
 */
+#define NUM_OF_TIME_COMPONENTS 3
 // Don't need to do typedef in C++ b/c it's done automatically
 struct __attribute__((packed)) Peri_Msg
 {
@@ -169,6 +179,8 @@ struct __attribute__((packed)) Peri_Msg
   int numOfDetectInPeriod[NUM_OF_SENSORS + INVALID_OFFSET] = {-1};
 
   int getResult[NUM_OF_TARGETS + INVALID_OFFSET] = {-1};
+
+  int time[NUM_OF_TIME_COMPONENTS] = {-1};
 
 };
 

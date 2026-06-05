@@ -5,32 +5,72 @@ SensorBase::SensorBase(int pin, volatile bool *intrFlag)
     pin_num = pin;
     interruptFlag = intrFlag;
     sensorEnabled = true;
-    periodLen_ms = 2000; // default normalPollPeriod_ms
-    prevTime = 0;
+    pollPeriodLen_ms = 2000; // default normalPollPeriod_ms
+    setSensitivity(50);
+    prevPollTime = 0;
+    prevIntrTime = 0;
     trigMin = 0;
     sensitivityAdjustable = false;
     calibrationError = true;
+
+    // Zero out schedule memory to prevent random executions
+    for (int i = 0; i < ATTR_NAME_SENTINEL; i++)
+    {
+        scheduleActive[i] = false;
+        schedule_hour[i] = -1;
+        schedule_minute[i] = -1;
+        scheduledAttrVal[i] = -1;
+    }
 }
 
 SensorBase::~SensorBase() {}
 
 bool SensorBase::poll(uint32_t curTime, float &outReading)
 {
-    if (sensorEnabled && !calibrationError && (curTime - prevTime >= periodLen_ms))
+    if (sensorEnabled && !calibrationError && (curTime - prevPollTime >= pollPeriodLen_ms))
     {
         outReading = getReading();
-        prevTime = curTime;
+        prevPollTime = curTime;
         return true;
     }
     return false;
 }
 
-bool SensorBase::checkAndClearInterrupt()
+bool SensorBase::checkAndClearInterrupt(uint32_t curTime)
 {
+    // 1. Did the hardware flag physically trigger?
     if (interruptFlag && *interruptFlag)
     {
-        // Atomically read and clear the flag outside the critical hardware ISR
+        // 2. Immediately clear the hardware flag so we don't miss future events
         *interruptFlag = false;
+        
+        // 3. Evaluate the Debounce Window
+        if (curTime - prevIntrTime >= debouncePeriodLen_ms)
+        {
+            prevIntrTime = curTime; // Reset the debounce timer!
+            return true;            // Valid, debounced interrupt
+        }
+    }
+    
+    // Returns false if there was no interrupt, OR if it was bounced as noise
+    return false; 
+}
+
+void SensorBase::setSchedule(Attr_Name attr, int val, int hour, int min)
+{
+    scheduleActive[attr] = true;
+    scheduledAttrVal[attr] = val;
+    schedule_hour[attr] = hour;
+    schedule_minute[attr] = min;
+}
+
+bool SensorBase::checkAndClearSchedule(Attr_Name attr, int curHour, int curMin, int &outVal)
+{
+    // If a schedule exists and the clock perfectly matches the hour and minute
+    if (scheduleActive[attr] && schedule_hour[attr] == curHour && schedule_minute[attr] == curMin)
+    {
+        scheduleActive[attr] = false; // Disable it so it doesn't run 60 times this minute!
+        outVal = scheduledAttrVal[attr];
         return true;
     }
     return false;
@@ -50,11 +90,39 @@ bool SensorBase::isSendOnIntr() const { return sendOnIntr; }
 void SensorBase::setReadingType(ReadingType mode) { readingMode = mode; }
 ReadingType SensorBase::getReadingType() const { return readingMode; }
 
-void SensorBase::setPollPeriod(uint32_t period) { periodLen_ms = period; }
-uint32_t SensorBase::getPollPeriod() const { return periodLen_ms; }
+void SensorBase::setPollPeriod(uint32_t period) { pollPeriodLen_ms = period; }
+uint32_t SensorBase::getPollPeriod() const { return pollPeriodLen_ms; }
 
-void SensorBase::setSensitivity(float sensitivity) { trigMin = sensitivity; }
-float SensorBase::getSensitivity() const { return trigMin; }
+void SensorBase::setSensitivity(int sensitivity)
+{
+    if (sensitivityAdjustable)
+    {
+        sensitivityLevel = sensitivity;
+        int level = 100-sensitivityLevel;
+        debouncePeriodLen_ms = min_debouncePeriodLen_ms + (sensitivityStep*level);
+    }
+    else
+    {
+        debouncePeriodLen_ms = min_debouncePeriodLen_ms;
+    }
+}
+
+int SensorBase::getSensitivity() const { return sensitivityLevel; }
+
+unsigned long SensorBase::getDebouncePeriod_ms() const
+{
+    return debouncePeriodLen_ms;
+}
+
+void SensorBase::setPrevIntrTime_ms(unsigned long time)
+{
+    prevIntrTime = time;
+}
+
+unsigned long SensorBase::getPrevIntrTime_ms() const
+{
+    return prevIntrTime;
+}
 bool SensorBase::isSensitivityAdjustable() const { return sensitivityAdjustable; }
 
 void SensorBase::setCalibrationError(bool state) { calibrationError = state; }

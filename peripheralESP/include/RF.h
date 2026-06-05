@@ -10,8 +10,7 @@ private:
     float sensitivityStep;
     float noiseFloor;
     String rfDataTokens[6]; // RF_TOKEN_COUNT
-    int clock_hour;
-    int clock_minute;
+    int clock[NUM_OF_TIME_COMPONENTS] = {};
 
     bool rf_updateTokens();
 
@@ -20,7 +19,6 @@ public:
     virtual float getReading() override;
     virtual bool calibrate() override;
     
-    int getClockHour() const { return clock_hour; }
-    int getClockMinute() const { return clock_minute; }
+    bool getTime(int timeComponentsArr[3]);
     void sendMsgToPi(String msg);
 };

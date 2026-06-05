@@ -127,7 +127,7 @@ def format_line_for_peri(raw_line:str):
         # 1. Extract Metadata
         # date = parts[0]
         # toReturn += date + ","
-        time = parts[1][:5]
+        time = parts[1][:8]
         toReturn += time + ","
         
         # 2. Extract Power Data (dBFS)

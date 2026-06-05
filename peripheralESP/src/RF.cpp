@@ -4,8 +4,9 @@
 RF::RF(int pin, volatile bool *intrFlag) : SensorBase(pin, intrFlag)
 {
   sensitivityAdjustable = true;
-  clock_hour = 0;
-  clock_minute = 0;
+  setSensitivity(50);
+  rf_updateTokens();
+  
 }
 
 bool RF::rf_updateTokens()
@@ -46,8 +47,9 @@ bool RF::rf_updateTokens()
   // Update internal clock automatically
   if (rfDataTokens[0] != "")
   {
-    clock_hour = rfDataTokens[0].substring(0, 2).toInt();
-    clock_minute = rfDataTokens[0].substring(2).toInt();
+    clock[0] = rfDataTokens[0].substring(0, 2).toInt();
+    clock[1] = rfDataTokens[0].substring(3, 5).toInt();
+    clock[2] = rfDataTokens[0].substring(6).toInt();
   }
 
   return true;
@@ -92,6 +94,15 @@ bool RF::calibrate()
   trigMin = noiseFloor * 1.2;
   trigMax = noiseFloor * 10;
   sensitivityStep = (trigMax - trigMin) / 100;
+  return true;
+}
+
+bool RF::getTime(int timeComponentsArr[3])
+{
+  if (!rf_updateTokens()) return false;
+
+  for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) timeComponentsArr[i] = clock[i];
+  
   return true;
 }
 

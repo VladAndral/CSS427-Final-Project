@@ -69,12 +69,17 @@ void init_PeriMsg(Peri_Msg &msg)
     // TODO: This does not initialize every element to -1. Must loop through and initialize
   for (int i = 0; i < NUM_OF_SENSORS + INVALID_OFFSET; i++)
   {
-    msg.sensorData[i] = {-1};
-    msg.numOfDetectInPeriod[i] = {-1};
+    msg.sensorData[i] = -1;
+    msg.numOfDetectInPeriod[i] = -1;
   }
   
   for (int i = 0; i < NUM_OF_TARGETS + INVALID_OFFSET; i++)
   {
-    msg.getResult[i] = {-1};
+    msg.getResult[i] = -1;
+  }
+
+  for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++)
+  {
+    msg.time[i] = -1;
   }
 }

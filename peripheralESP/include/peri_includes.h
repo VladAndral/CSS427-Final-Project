@@ -55,10 +55,8 @@ const int quietPollPeriod_ms = 1*1000;
 
 int64_t timeSinceBoot;
 
-uint32_t curTime;
-
-int clock_hour;
-int clock_minute;
+int periClock[NUM_OF_TIME_COMPONENTS] = {};
+bool clockUpdated;
 
 const char *recv_data;
 volatile bool receivedData = false;
@@ -90,4 +88,4 @@ bool emptyEA(Peri_Msg &to_ctrlr) {
 /// corresponding enum. Returns false if any part of the message is not valid and/or the action was not executed.
 /// Returns true if the command is valid; these functions will operate on sensors if the command is valid
 /// @param to_ctrlr A reference to the message to be sent to the controller
-bool (*executeAction[NUM_OF_TARGETS + INVALID_OFFSET])(Peri_Msg &) = {emptyEA};
+bool (*executeAction[ACTION_SENTINEL])(Peri_Msg &) = {emptyEA};

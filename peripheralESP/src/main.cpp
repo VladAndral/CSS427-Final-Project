@@ -257,11 +257,37 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
   return true;
 }
 
-// TODO:
 bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
 {
-  rejectionReason = "Schedule not impl. yet";
-  return false;
+  if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
+  {
+    rejectionReason = "Invalid attribute name";
+    return false;
+  }
+
+  Target target = msg_from_ctrlr.target;
+  int curTarget = (target == TARGET_SYSTEM) ? 1 : target;
+  int end = (target == TARGET_SYSTEM) ? NUM_OF_SENSORS : target;
+  
+  // Smartly pull from attr_val if it's a mode, otherwise grab val1
+  int valToSchedule = (msg_from_ctrlr.attr_name == ATTR_NAME_MODE) ? msg_from_ctrlr.attr_val : msg_from_ctrlr.val1;
+
+  for (curTarget; curTarget <= end; curTarget++)
+  {
+    sensorArray[curTarget]->setSchedule(
+        msg_from_ctrlr.attr_name, 
+        valToSchedule, 
+        msg_from_ctrlr.val2, // Hour
+        msg_from_ctrlr.val3  // Minute
+    );
+  }
+  
+  return true;
+}
+
+bool updateClock()
+{
+  return static_cast<RF*>(sensorArray[SENSOR_RF])->getTime(periClock);
 }
 
 void setup()
@@ -300,6 +326,7 @@ void setup()
   executeAction[ACTION_DEMAND] = cmd_demand;
   executeAction[ACTION_SET] = cmd_set;
   executeAction[ACTION_GET] = cmd_get;
+  executeAction[ACTION_SCHEDULE] = cmd_schedule;
 
   sendLogMsgToCtrlr("Peripheral is setting up...");
 
@@ -332,6 +359,8 @@ void setup()
     delay(10);
   }
 
+  updateClock();
+
   Serial.println("worked4");
   sendLogMsgToCtrlr("Peripheral now WORKING...");
 }
@@ -356,13 +385,55 @@ void loop()
     }
   }
 
+  clockUpdated = updateClock();
+
+  if (clockUpdated)
+  {
+    int currentHour = periClock[0];
+    int currentMinute = periClock[1];
+
+    for (int i = 1; i <= NUM_OF_SENSORS; i++)
+    {
+      int scheduledVal;
+
+      // Check Poll Period
+      if (sensorArray[i]->checkAndClearSchedule(ATTR_NAME_POLL_PERIOD, currentHour, currentMinute, scheduledVal))
+      {
+        sensorArray[i]->setPollPeriod(scheduledVal);
+      }
+
+      // Check Sensitivity
+      if (sensorArray[i]->checkAndClearSchedule(ATTR_NAME_SENSITIVITY, currentHour, currentMinute, scheduledVal))
+      {
+        if (sensorArray[i]->isSensitivityAdjustable())
+          sensorArray[i]->setSensitivity(scheduledVal);
+      }
+
+      // Check Mode (Redirects safely into your existing cmd_set logic)
+      if (sensorArray[i]->checkAndClearSchedule(ATTR_NAME_MODE, currentHour, currentMinute, scheduledVal))
+      {
+        // Temporarily hijack the global message struct to utilize your existing cmd_set infrastructure
+        msg_from_ctrlr.target = (Target)i;
+        msg_from_ctrlr.attr_name = ATTR_NAME_MODE;
+        msg_from_ctrlr.attr_val = (Attr_Val)scheduledVal;
+        
+        Peri_Msg dummyMsg; // Dummy struct required for the function signature
+        cmd_set(dummyMsg);
+      }
+    }
+  }
+
   bool sensorTripped[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
 
   for (int i = 1; i <= NUM_OF_SENSORS; i++)
   {
-    sensorTripped[i] = sensorArray[i]->checkAndClearInterrupt();
-    if (sensorTripped[i])
-    sns_intr_count[i]++;
+    bool curSensorTripped = sensorArray[i]->checkAndClearInterrupt(millis());
+
+    if (curSensorTripped)
+    {
+      sensorTripped[i] = true;
+      sns_intr_count[i]++;
+    }
   }
     
   // Process Incoming Controller Messages
@@ -394,6 +465,10 @@ void loop()
 
     sendLogMsgToCtrlr(logMsg);
     delay(10);
+    if (clockUpdated)
+    {
+      for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) msg_to_ctrlr_user.time[i] = periClock[i];
+    }
     sendDataStructToController(msg_to_ctrlr_user);
     delay(10);
   }
@@ -422,7 +497,14 @@ void loop()
     }
   }
 
-  if (gotReading) sendDataStructToController(msg_to_ctrlr_poll_pollTrig);
+  if (gotReading)
+  {
+    if (clockUpdated)
+    {
+      for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) msg_to_ctrlr_poll_pollTrig.time[i] = periClock[i];
+    }
+    sendDataStructToController(msg_to_ctrlr_poll_pollTrig);
+  }
   // We might send an intr message also, give central time to receive message
   delay(10);
 
@@ -432,16 +514,29 @@ void loop()
   bool anyDetection = false;
 
   // Use the boolean states saved at the top of the loop!
-  for (int i = 1; i < NUM_OF_SENSORS; i++)
+  for (int i = 1; i <= NUM_OF_SENSORS; i++)
   {
     // If mode is trig, send message instantly
     if (sensorArray[i]->isEnabled() && sensorArray[i]->isSendOnIntr() && sensorTripped[i])
     {
       anyDetection = true;
       msg_to_ctrlr_intr.sensorDetected[i] = true;
+      if (clockUpdated)
+      {
+        for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) msg_to_ctrlr_intr.time[i] = periClock[i];
+      }
+      msg_to_ctrlr_intr.sensorReadingType[i] = READING_TRIG;
       sendDataStructToController(msg_to_ctrlr_intr);
     }
   }
-    
-  if (anyDetection) sendDataStructToController(msg_to_ctrlr_intr);
+  
+  // // TODO: Do we need this? I think we're double-sending when an interrupt happens
+  // if (anyDetection)
+  // {
+  //   if (clockUpdated)
+  //   {
+  //     for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) msg_to_ctrlr_intr.time[i] = periClock[i];
+  //   }
+  //   sendDataStructToController(msg_to_ctrlr_intr);
+  // }
 }

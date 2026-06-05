@@ -26,6 +26,9 @@ Attr_Name attr_name;
 Attr_Val attr_val;
 
 bool receivedData = false;
+bool receivedLog = false;
+uint8_t stringMsg[250]; // Safely allocated memory for the max ESP-NOW payload
+int stringMsgLen;
 
 Attr_Name expectedGetAttribute = ATTR_NAME_INVALID;
 
@@ -38,26 +41,22 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
-  if (data_len == sizeof(Peri_Msg))
+  if (data[data_len - 1] == '~')
+  {
+    receivedLog = true;
+    stringMsgLen = data_len;
+    
+    // Copy the network data into your safe array
+    memcpy(stringMsg, data, stringMsgLen);
+    
+    // Add a null-terminator at the very end of the string
+    stringMsg[stringMsgLen] = '\0'; 
+  }
+  else if (data_len == sizeof(Peri_Msg))
   {
     receivedData = true;
     memcpy(&msg_from_peri, data, sizeof(msg_from_peri));
     // Serial.println("Got data");
-  }
-  else
-  {
-
-    // // debug
-    Serial.print("Not Data: ");
-    Serial.println(sizeof(Peri_Msg));
-    Serial.println(data_len);
-    // If peri sent a string msg
-    if (data[data_len - 1] == '~')
-    {
-      for (int i = 0; i < data_len - 1; i++)
-        Serial.printf("%c", data[i]);
-      Serial.println("");
-    }
   }
 }
 
@@ -212,15 +211,18 @@ bool buildMsg(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_pe
 
     if (action == ACTION_SCHEDULE)
     {
-      int userTime = tokenArray[arrPos++].toInt();
+      int userHour = tokenArray[arrPos++].toInt();
+      int userMin = tokenArray[arrPos++].toInt();
 
-      if (!userTime)
+      // Basic bounds safety check
+      if (userHour < 0 || userHour > 23 || userMin < 0 || userMin > 59)
       {
-        Serial.println("invalid schedule time");
+        Serial.println("Invalid schedule time. Use: <hour> <minute>");
         return false;
       }
 
-      msg_to_peri.val2 = userTime;
+      msg_to_peri.val2 = userHour;
+      msg_to_peri.val3 = userMin;
     }
   }
 
@@ -337,13 +339,44 @@ void loop()
     }
   }
 
+  if (receivedLog)
+  {
+    receivedLog = false;
+    for (int i = 0; i < stringMsgLen - 1; i++)
+      Serial.printf("%c", stringMsg[i]);
+    Serial.println("");
+  }
   // If we got a message from the peripheral
-  if (receivedData)
+  else if (receivedData)
   {
     receivedData = false;
+
+    bool validTime = true;
+    
+    for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++)
+    {
+      if (msg_from_peri.time[i] == -1)
+      { 
+        validTime = false;
+        break;
+      }
+    }
+    
+    if (validTime)
+    {
+      Serial.print("**************");
+      Serial.print("\tTime: ");
+      for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++)
+      { 
+        Serial.printf("%02d", msg_from_peri.time[i]);
+        if ((i+1) != NUM_OF_TIME_COMPONENTS) Serial.print(":");
+      }
+      Serial.println("\t**************");
+    }
+
     if (msg_from_peri.recv_msg_error)
     {
-      Serial.println("[ERROR]: Peripheral rejected the command.");
+      Serial.println("[ERROR]: Peripheral could not process the command.");
       return;
     }
 
@@ -353,15 +386,16 @@ void loop()
       if (msg_from_peri.sensorReadingType[i] == READING_DEMAND)
       {
         Serial.print("\n[ON-DEMAND REPORT] -> ");
-          if (msg_from_peri.sensorData[i] != -1)
-          {
-            String sensorName = getSensorName((Target)i);
-            // FIX: Added .c_str()
-            Serial.printf("%s Current Value: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
-          }
+        if (msg_from_peri.sensorData[i] != -1)
+        {
+          String sensorName = getSensorName((Target)i);
+          // FIX: Added .c_str()
+          Serial.printf("%s Current Value: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
+        }
       }
-      if(msg_from_peri.sensorReadingType[i] == READING_TRIG || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL){
-        if(msg_from_peri.sensorData[i] != -1){
+
+      if(msg_from_peri.sensorReadingType[i] == READING_TRIG || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL)
+      {
           // FIX: Saved String first, called .c_str() later
           String sensorName = getSensorName((Target)i);
 
@@ -369,18 +403,20 @@ void loop()
           {
             Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
           }
-          else
-          {
-            Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
-          }
-        }
+          // else
+          // {
+          //   Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
+          // }
       }
-      if(msg_from_peri.sensorReadingType[i] == READING_POLL || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL){
-        if(msg_from_peri.sensorData[i] != -1){
+      if(msg_from_peri.sensorReadingType[i] == READING_POLL || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL)
+      {
+        if(msg_from_peri.sensorData[i] != -1)
+        {
           // FIX: Saved String first, called .c_str() later
           String sensorName = getSensorName((Target)i);
           Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName.c_str(), msg_from_peri.numOfDetectInPeriod[i]);
-          Serial.printf("%s data is: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);        
+          Serial.printf("%s data is: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
+          Serial.println("");
         }
       }
     }
@@ -389,6 +425,9 @@ void loop()
     {
       if (msg_from_peri.getResult[i] != -1)
       {
+        String targetName = getSensorName((Target)i);
+        int result = msg_from_peri.getResult[i];
+
         if (expectedGetAttribute == ATTR_NAME_MODE)
         { 
           String mode = AttributeValues[msg_from_peri.getResult[TARGET_SYSTEM] - 1];
@@ -396,15 +435,13 @@ void loop()
           Serial.printf("System's mode is: %s\n\n", mode.c_str());
           break;
         }
-
-        if (msg_from_peri.getResult[i] != -1)
+        else if (expectedGetAttribute == ATTR_NAME_POLL_PERIOD)
         {
-          Serial.print("\n[GET COMMAND RESULT] -> \n");
-          String targetName = getSensorName((Target)i);
-          int result = msg_from_peri.getResult[i];
-          
-          // FIX: Added .c_str()
-          Serial.printf("%s Property is: %d\n\n", targetName.c_str(), result);
+          Serial.printf("%s polls every %d ms\n", targetName.c_str(), result);
+        }
+        else if (expectedGetAttribute == ATTR_NAME_SENSITIVITY)
+        {
+          Serial.printf("%s's sensitivity level: %d%\n", targetName.c_str(), result);
         }
         else
         {

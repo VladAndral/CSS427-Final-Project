@@ -4,6 +4,7 @@
 Photo::Photo(int pin, volatile bool* intrFlag) : SensorBase(pin, intrFlag) 
 {
     sensitivityAdjustable = true;
+    setSensitivity(50);
 }
 
 float Photo::getReading()
