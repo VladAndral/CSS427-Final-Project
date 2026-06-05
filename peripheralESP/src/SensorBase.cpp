@@ -90,7 +90,19 @@ bool SensorBase::isSendOnIntr() const { return sendOnIntr; }
 void SensorBase::setReadingType(ReadingType mode) { readingMode = mode; }
 ReadingType SensorBase::getReadingType() const { return readingMode; }
 
-void SensorBase::setPollPeriod(uint32_t period) { pollPeriodLen_ms = period; }
+void SensorBase::setPollPeriod(uint32_t period)
+{
+    setEnabled(true);
+    setPollingEnabled(true);
+    pollPeriodLen_ms = period;
+
+    // Automatically correct the reading type so the central parses the data
+    if (readingMode == READING_TRIG) {
+        setReadingType(READING_TRIGPOLL);
+    } else {
+        setReadingType(READING_POLL);
+    }
+}
 uint32_t SensorBase::getPollPeriod() const { return pollPeriodLen_ms; }
 
 void SensorBase::setSensitivity(int sensitivity)

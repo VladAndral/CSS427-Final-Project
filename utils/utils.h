@@ -27,10 +27,10 @@ enum CommandType : int
 enum ReadingType : int
 {
   READING_INVALID,
-  READING_DEMAND,
-  READING_POLL,
   READING_TRIG,
+  READING_POLL,
   READING_TRIGPOLL,
+  READING_DEMAND,
   READING_GET
 };
 

@@ -229,7 +229,7 @@ bool buildMsg(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_pe
   return true;
 }
 
-String getSensorName(Target target)
+String getTargetName(Target target)
 {
   String sensorName = "";
   switch (target)
@@ -242,6 +242,9 @@ String getSensorName(Target target)
     break;
   case SENSOR_RF:
     sensorName = "ANTENNA";
+    break;
+  case TARGET_SYSTEM:
+    sensorName = "SYSTEM";
     break;
   default:
     sensorName = "!BAD TARGET";
@@ -388,7 +391,7 @@ void loop()
         Serial.print("\n[ON-DEMAND REPORT] -> ");
         if (msg_from_peri.sensorData[i] != -1)
         {
-          String sensorName = getSensorName((Target)i);
+          String sensorName = getTargetName((Target)i);
           // FIX: Added .c_str()
           Serial.printf("%s Current Value: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
         }
@@ -397,7 +400,7 @@ void loop()
       if(msg_from_peri.sensorReadingType[i] == READING_TRIG || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL)
       {
           // FIX: Saved String first, called .c_str() later
-          String sensorName = getSensorName((Target)i);
+          String sensorName = getTargetName((Target)i);
 
           if (msg_from_peri.sensorDetected[i])
           {
@@ -413,7 +416,7 @@ void loop()
         if(msg_from_peri.sensorData[i] != -1)
         {
           // FIX: Saved String first, called .c_str() later
-          String sensorName = getSensorName((Target)i);
+          String sensorName = getTargetName((Target)i);
           Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName.c_str(), msg_from_peri.numOfDetectInPeriod[i]);
           Serial.printf("%s data is: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
           Serial.println("");
@@ -425,15 +428,25 @@ void loop()
     {
       if (msg_from_peri.getResult[i] != -1)
       {
-        String targetName = getSensorName((Target)i);
+        String targetName = getTargetName((Target)i);
+        Serial.printf("Target name: %s\n", targetName.c_str());
         int result = msg_from_peri.getResult[i];
 
         if (expectedGetAttribute == ATTR_NAME_MODE)
         { 
-          String mode = AttributeValues[msg_from_peri.getResult[TARGET_SYSTEM] - 1];
-          // FIX: Added .c_str()
-          Serial.printf("System's mode is: %s\n\n", mode.c_str());
-          break;
+          String mode = AttributeValues[msg_from_peri.getResult[i] - 1];
+          
+          if (targetName == "SYSTEM")
+          {
+            // FIX: Added .c_str()
+            Serial.printf("System's mode is: %s\n\n", mode.c_str());
+            break;
+          }
+          else
+          {
+            String isEnabled = msg_from_peri.sensorEnabled[i] ? "true" : "false";
+            Serial.printf("Sensor enabled: %s\n Sensor mode: %s\n", isEnabled.c_str(), mode.c_str());
+          }
         }
         else if (expectedGetAttribute == ATTR_NAME_POLL_PERIOD)
         {

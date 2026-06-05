@@ -51,7 +51,7 @@ float sensitivityStep[NUM_OF_SENSORS + INVALID_OFFSET] = {1};
 
 const int normalPollPeriod_ms = 2*1000;
 const int maintPollPeriod_ms = 1*1000;
-const int quietPollPeriod_ms = 1*1000;
+const int lockdownPollPeriod_ms = 1*1000;
 
 int64_t timeSinceBoot;
 

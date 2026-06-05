@@ -127,47 +127,72 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
     
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_PERIOD)
     {
-      // TODO: Do for sensitivity
-      if (msg_from_ctrlr.val1 != sensorArray[curTarget]->getPollPeriod())
+      // Check if the value changed, OR if it was disabled, OR if polling was turned off (like in quiet mode)
+      if (msg_from_ctrlr.val1 != sensorArray[curTarget]->getPollPeriod() || 
+          !sensorArray[curTarget]->isEnabled() || 
+          !sensorArray[curTarget]->isPollingEnabled())
+      {
         system_mode = ATTR_VAL_SYS_CUSTOM;
+      }
       sensorArray[curTarget]->setPollPeriod(msg_from_ctrlr.val1);
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
       if (sensorArray[curTarget]->isSensitivityAdjustable())
+      {
+        if (msg_from_ctrlr.val1 != sensorArray[curTarget]->getSensitivity())
+          system_mode = ATTR_VAL_SYS_CUSTOM;
         sensorArray[curTarget]->setSensitivity(msg_from_ctrlr.val1);
+      }
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
     {
       switch (msg_from_ctrlr.attr_val)
       {
       case ATTR_VAL_SNS_TRIG:
+        system_mode = (sensorArray[curTarget]->getReadingType() != READING_TRIG) ? ATTR_VAL_SYS_CUSTOM : system_mode;
         sensorArray[curTarget]->setReadingType(READING_TRIG);
         sensorArray[curTarget]->setPollingEnabled(false);
         sensorArray[curTarget]->setSendOnIntr(true);
         break;
         case ATTR_VAL_SNS_POLL:
+        system_mode = (sensorArray[curTarget]->getReadingType() != READING_POLL) ? ATTR_VAL_SYS_CUSTOM : system_mode;
         sensorArray[curTarget]->setReadingType(READING_POLL);
         sensorArray[curTarget]->setPollingEnabled(true);
         sensorArray[curTarget]->setSendOnIntr(false);
         break;
         case ATTR_VAL_SNS_TRIGPOLL:
+        system_mode = (sensorArray[curTarget]->getReadingType() != READING_TRIGPOLL) ? ATTR_VAL_SYS_CUSTOM : system_mode;
         sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
         sensorArray[curTarget]->setPollingEnabled(true);
         sensorArray[curTarget]->setSendOnIntr(true);
         break;
       case ATTR_VAL_ENABLE:
+        // If this sensor was prev. disabled, we are in a custom setting
+        if (!sensorArray[curTarget]->isEnabled()) system_mode = ATTR_VAL_SYS_CUSTOM;
         sensorArray[curTarget]->setEnabled(true);
         break;
-      case ATTR_VAL_DISABLE:
+        case ATTR_VAL_DISABLE:
+        // If this sensor was prev. enabled, we are in a custom setting
+        if (sensorArray[curTarget]->isEnabled()) system_mode = ATTR_VAL_SYS_CUSTOM;
         sensorArray[curTarget]->setEnabled(false);
         break;
       case ATTR_VAL_SYS_NORMAL:
+        sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
         sensorArray[curTarget]->setEnabled(true);
         sensorArray[curTarget]->setPollingEnabled(true);
         sensorArray[curTarget]->setSendOnIntr(true);
         sensorArray[curTarget]->setPollPeriod(normalPollPeriod_ms);
-        system_mode = msg_from_ctrlr.attr_val;
+
+        if (target == TARGET_SYSTEM)
+        {
+          system_mode = msg_from_ctrlr.attr_val;
+        }
+        else
+        {
+          if (system_mode != msg_from_ctrlr.attr_val)
+            system_mode = ATTR_VAL_SYS_CUSTOM;
+        }
         break;
       case ATTR_VAL_SYS_MAINT:
         if ((Target)curTarget != SENSOR_RF)
@@ -176,28 +201,55 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         }
         else
         {
+          sensorArray[curTarget]->setReadingType(READING_POLL);
           sensorArray[curTarget]->setEnabled(true);
           sensorArray[curTarget]->setPollingEnabled(true);
           sensorArray[curTarget]->setSendOnIntr(false);
           sensorArray[curTarget]->setPollPeriod(maintPollPeriod_ms);
         }
-        system_mode = msg_from_ctrlr.attr_val;
+
+        if (target == TARGET_SYSTEM)
+        {
+          system_mode = msg_from_ctrlr.attr_val;
+        }
+        else
+        {
+          if (system_mode != msg_from_ctrlr.attr_val)
+            system_mode = ATTR_VAL_SYS_CUSTOM;
+        }
         break;
       case ATTR_VAL_SYS_QUIET:
+        sensorArray[curTarget]->setReadingType(READING_TRIG);
         sensorArray[curTarget]->setEnabled(true);
-        sensorArray[curTarget]->setPollingEnabled(true);
-        sensorArray[curTarget]->setSendOnIntr(false);
-        sensorArray[curTarget]->setPollPeriod(quietPollPeriod_ms);
+        sensorArray[curTarget]->setPollingEnabled(false);
+        sensorArray[curTarget]->setSendOnIntr(true);
         sensorArray[curTarget]->setSensitivity(trigMin[curTarget] + sensitivityStep[curTarget]);
-        system_mode = msg_from_ctrlr.attr_val;
+
+        if (target == TARGET_SYSTEM)
+        {
+          system_mode = msg_from_ctrlr.attr_val;
+        }
+        else
+        {
+          if (system_mode != msg_from_ctrlr.attr_val)
+            system_mode = ATTR_VAL_SYS_CUSTOM;
+        }
         break;
       case ATTR_VAL_SYS_LOCKDOWN:
-        sensorArray[curTarget]->setEnabled(true);
-        sensorArray[curTarget]->setPollingEnabled(true);
+        sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
         sensorArray[curTarget]->setSendOnIntr(true);
-        sensorArray[curTarget]->setPollPeriod(quietPollPeriod_ms);
+        sensorArray[curTarget]->setPollPeriod(lockdownPollPeriod_ms);
         sensorArray[curTarget]->setSensitivity(trigMin[curTarget] + sensitivityStep[curTarget]);
-        system_mode = msg_from_ctrlr.attr_val;
+        
+        if (target == TARGET_SYSTEM)
+        {
+          system_mode = msg_from_ctrlr.attr_val;
+        }
+        else
+        {
+          if (system_mode != msg_from_ctrlr.attr_val)
+            system_mode = ATTR_VAL_SYS_CUSTOM;
+        }
         break;
       default:
         rejectionReason = "Don't know what this mode is";
@@ -240,14 +292,20 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
       }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_MODE)
     {
-      // For now, we're not going to get mode of an individual sensor
-      if (target != TARGET_SYSTEM)
+      if (target == TARGET_SYSTEM)
       {
-        rejectionReason = "Cannot get mode of any indiv. sensor";
-        return false;
+        msg_to_ctrlr.getResult[TARGET_SYSTEM] = system_mode;
+        break;
       }
-      msg_to_ctrlr.getResult[TARGET_SYSTEM] = system_mode;
-      break;
+      else
+      {
+        // If we're getting a sensor, return if it's enabled and also whether it's poll, trig, or trigpoll
+        msg_to_ctrlr.sensorEnabled[curTarget] = sensorArray[curTarget]->isEnabled();
+        
+        ReadingType curSensorReadingType = sensorArray[curTarget]->getReadingType();
+        Attr_Val curSensorReadingTypeAsAttrVal = (Attr_Val)curSensorReadingType;
+        msg_to_ctrlr.getResult[curTarget] = curSensorReadingTypeAsAttrVal;
+      }
     
     }
     msg_to_ctrlr.sensorReadingType[curTarget] = READING_GET;
