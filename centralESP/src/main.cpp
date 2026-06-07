@@ -423,7 +423,6 @@ void loop()
       {
         if (msg_from_peri.sensorData[i] != -1)
         {
-          // FIX: Saved String first, called .c_str() later
           String sensorName = getTargetName((Target)i);
           Serial.printf("----------------%s WAS TRIPPED %u TIMES-------------\n\n", sensorName.c_str(), msg_from_peri.numOfDetectInPeriod[i]);
           Serial.printf("%s data is: %d\n", sensorName.c_str(), msg_from_peri.sensorData[i]);
