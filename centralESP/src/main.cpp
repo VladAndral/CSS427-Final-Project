@@ -45,12 +45,12 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
   {
     receivedLog = true;
     stringMsgLen = data_len;
-    
+
     // Copy the network data into your safe array
     memcpy(stringMsg, data, stringMsgLen);
-    
+
     // Add a null-terminator at the very end of the string
-    stringMsg[stringMsgLen] = '\0'; 
+    stringMsg[stringMsgLen] = '\0';
   }
   else if (data_len == sizeof(Peri_Msg))
   {
@@ -60,6 +60,8 @@ void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
   }
 }
 
+/// @brief Creates an empty message to be sent to the controller
+/// @return Empty controller message
 Ctrlr_Msg newMsgToPeri()
 {
   Ctrlr_Msg toReturn;
@@ -86,10 +88,13 @@ void flushSerial()
 /// @return Target enum object. May be _INVALID
 Target getTarget(String parameter)
 {
-  if (parameter.isEmpty()) return TARGET_INVALID;
+  if (parameter.isEmpty())
+    return TARGET_INVALID;
 
-  for (int i = 0; i < TARGET_NAMES_COUNT; i++) {
-    if (parameter == targetNames[i]) return (Target)(i + INVALID_OFFSET);
+  for (int i = 0; i < TARGET_NAMES_COUNT; i++)
+  {
+    if (parameter == targetNames[i])
+      return (Target)(i + INVALID_OFFSET);
   }
 
   return TARGET_INVALID;
@@ -100,10 +105,13 @@ Target getTarget(String parameter)
 /// @return Target enum object. May be _INVALID
 Action getAction(String parameter, Target target)
 {
-  if (parameter.isEmpty()) return ACTION_INVALID;
+  if (parameter.isEmpty())
+    return ACTION_INVALID;
 
-  for (int i = 0; i < ACTION_NAMES_COUNT; i++) {
-    if (parameter == actionNames[i]) return (Action)(i + INVALID_OFFSET);
+  for (int i = 0; i < ACTION_NAMES_COUNT; i++)
+  {
+    if (parameter == actionNames[i])
+      return (Action)(i + INVALID_OFFSET);
   }
 
   return ACTION_INVALID;
@@ -114,12 +122,15 @@ Action getAction(String parameter, Target target)
 /// @return Target enum object. May be _INVALID
 Attr_Name getAttrName(String parameter, Target target)
 {
-  if (parameter.isEmpty()) return ATTR_NAME_INVALID;
-  
-  for (int i = 0; i < ATTR_NAMES_COUNT; i++) {
-    if (parameter == AttributeNames[i]) return (Attr_Name)(i + INVALID_OFFSET);
+  if (parameter.isEmpty())
+    return ATTR_NAME_INVALID;
+
+  for (int i = 0; i < ATTR_NAMES_COUNT; i++)
+  {
+    if (parameter == AttributeNames[i])
+      return (Attr_Name)(i + INVALID_OFFSET);
   }
-  
+
   return ATTR_NAME_INVALID;
 }
 
@@ -131,12 +142,15 @@ Attr_Name getAttrName(String parameter, Target target)
 /// @return Target enum object. May be _INVALID
 Attr_Val getAttrVal(String parameter, Target target)
 {
-  if (parameter.isEmpty()) return ATTR_VAL_INVALID;
-  
-  for (int i = 0; i < ATTR_VALS_COUNT; i++) {
-    if (parameter == AttributeValues[i]) return (Attr_Val)(i + INVALID_OFFSET);
+  if (parameter.isEmpty())
+    return ATTR_VAL_INVALID;
+
+  for (int i = 0; i < ATTR_VALS_COUNT; i++)
+  {
+    if (parameter == AttributeValues[i])
+      return (Attr_Val)(i + INVALID_OFFSET);
   }
-  
+
   return ATTR_VAL_INVALID;
 }
 
@@ -187,25 +201,25 @@ bool buildMsg(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_pe
     if (attr_name == ATTR_NAME_MODE)
     {
       Attr_Val userMode = getAttrVal(tokenArray[arrPos++], target);
-      
-      if (userMode == ATTR_VAL_INVALID) 
+
+      if (userMode == ATTR_VAL_INVALID)
       {
         Serial.println("Invalid mode value.");
         return false;
       }
-      
+
       msg_to_peri.attr_val = userMode;
     }
     else
-    { 
+    {
       int value = tokenArray[arrPos++].toInt();
-      
+
       if (value < 1)
       {
         Serial.println("Invalid positive nonzero integer value.");
         return false;
       }
-      
+
       msg_to_peri.val1 = value;
     }
 
@@ -229,6 +243,9 @@ bool buildMsg(String tokenArray[TOK_ARR_SIZE], int &arrPos, Ctrlr_Msg &msg_to_pe
   return true;
 }
 
+/// @brief Returns string form of target's name
+/// @param target The target in question
+/// @return Target's name
 String getTargetName(Target target)
 {
   String sensorName = "";
@@ -290,12 +307,6 @@ void setup()
 
 void loop()
 {
-  // static uint8_t a = 0;
-  // delay(1000);
-  // ESPNow.send_message(peripheral_mac, &a, 1);
-  // // ++ operation increments the var after being used
-  // Serial.println(a++);
-
   // If there was user input
   if (Serial.available())
   {
@@ -355,24 +366,25 @@ void loop()
     receivedData = false;
 
     bool validTime = true;
-    
+
     for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++)
     {
       if (msg_from_peri.time[i] == -1)
-      { 
+      {
         validTime = false;
         break;
       }
     }
-    
+
     if (validTime)
     {
       Serial.print("**************");
       Serial.print("\tTime: ");
       for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++)
-      { 
+      {
         Serial.printf("%02d", msg_from_peri.time[i]);
-        if ((i+1) != NUM_OF_TIME_COMPONENTS) Serial.print(":");
+        if ((i + 1) != NUM_OF_TIME_COMPONENTS)
+          Serial.print(":");
       }
       Serial.println("\t**************");
     }
@@ -397,23 +409,19 @@ void loop()
         }
       }
 
-      if(msg_from_peri.sensorReadingType[i] == READING_TRIG || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL)
+      if (msg_from_peri.sensorReadingType[i] == READING_TRIG || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL)
       {
-          // FIX: Saved String first, called .c_str() later
-          String sensorName = getTargetName((Target)i);
+        // FIX: Saved String first, called .c_str() later
+        String sensorName = getTargetName((Target)i);
 
-          if (msg_from_peri.sensorDetected[i])
-          {
-            Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
-          }
-          // else
-          // {
-          //   Serial.printf("----------------NO PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
-          // }
+        if (msg_from_peri.sensorDetected[i])
+        {
+          Serial.printf("----------------PRESENCE DETECTED BY %s SENSOR-------------\n", sensorName.c_str());
+        }
       }
-      if(msg_from_peri.sensorReadingType[i] == READING_POLL || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL)
+      if (msg_from_peri.sensorReadingType[i] == READING_POLL || msg_from_peri.sensorReadingType[i] == READING_TRIGPOLL)
       {
-        if(msg_from_peri.sensorData[i] != -1)
+        if (msg_from_peri.sensorData[i] != -1)
         {
           // FIX: Saved String first, called .c_str() later
           String sensorName = getTargetName((Target)i);
@@ -433,9 +441,9 @@ void loop()
         int result = msg_from_peri.getResult[i];
 
         if (expectedGetAttribute == ATTR_NAME_MODE)
-        { 
+        {
           String mode = AttributeValues[msg_from_peri.getResult[i] - 1];
-          
+
           if (targetName == "SYSTEM")
           {
             // FIX: Added .c_str()
@@ -462,5 +470,5 @@ void loop()
         }
       }
     }
-  } //
+  }
 }

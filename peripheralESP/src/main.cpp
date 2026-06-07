@@ -18,18 +18,17 @@ RF rfSensor(RF_BOARD_PIN, &sns_intr_flag[SENSOR_RF]);
 // `ARRAY INDEX ZERO AND LAST INDEX IS NULLPTR!!!`
 // We size to NUM_OF_TARGETS + 1 so the enums (1 = PIR, 2 = Photo, 3 = RF) match the indices perfectly
 SensorBase *sensorArray[NUM_OF_TARGETS + 1] = {
-  nullptr,
-  &pirSensor,
-  &photoSensor,
-  &rfSensor,
-  nullptr
-};
+    nullptr,
+    &pirSensor,
+    &photoSensor,
+    &rfSensor,
+    nullptr};
 
+// We didn't end up using sensorSystem object
 SensorSystem systemSensor(pirSensor, photoSensor, rfSensor);
 /**********************************
     MESSAGING
 **********************************/
-// ... [Keep your ESP-NOW onRecv, onDataSent, and sendDataStructToController functions here] ...
 // Function that runs if I receive something
 void onRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
@@ -46,11 +45,15 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
+/// @brief Sends `Peri_Msg` struct to central
+/// @param msg_to_ctrlr Message to send
 void sendDataStructToController(Peri_Msg &msg_to_ctrlr)
 {
   ESPNow.send_message(controller_mac, (uint8_t *)&msg_to_ctrlr, sizeof(msg_to_ctrlr));
 }
 
+/// @brief Sends a string to central. Automatically adds '~' as a terminating character
+/// @param logMsg Message to send
 void sendLogMsgToCtrlr(String logMsg)
 {
   logMsg += "~";
@@ -58,21 +61,24 @@ void sendLogMsgToCtrlr(String logMsg)
   ESPNow.send_message(controller_mac, (uint8_t *)logMsgConvert, strlen(logMsgConvert));
 }
 
+/// @brief Sends string to connected Raspberry Pi. Automatically adds '~' as a terminating character
+/// @param msg Message to send
 void sendMsgToPi(String msg)
 {
   msg += "~";
   Serial2.print(msg);
 }
 
+/// @brief Creates a new `Peri_Msg` object with fields initialized to invalid values
+/// @return New `Peri_Msg` object
 Peri_Msg new_msg_to_ctrlr()
 {
-  // {0} guarantees every single bit in the struct is safely zeroed out
   Peri_Msg toReturn;
   init_PeriMsg(toReturn);
-  
+
   for (int i = 1; i <= NUM_OF_SENSORS; i++)
-  toReturn.sensorReadingType[i] = sensorArray[i]->getReadingType();
-  
+    toReturn.sensorReadingType[i] = sensorArray[i]->getReadingType();
+
   return toReturn;
 }
 
@@ -80,14 +86,21 @@ Peri_Msg new_msg_to_ctrlr()
 // CATEGORY 1: MANDATORY SENSOR BEHAVIORS (9 Points)
 // =========================================================================
 
-String behaviorPIRMotionEscalation() {
+/// @brief If the PIR sensor is in "normal" mode, and it detects movement, then it
+/// doubles the pollrate of the RF sensor.
+/// @return If the system behavior changed, returns a message that can be sent as a
+/// log message; otherwise returns an empty string (the system behavior did not change)
+String behaviorPIRMotionEscalation()
+{
   String toReturn = "";
 
   static unsigned long prevEscalation = millis();
 
-  if (millis()-prevEscalation > 6000 && system_mode == ATTR_VAL_SYS_NORMAL && sns_intr_count[SENSOR_PIR]) {
+  if (millis() - prevEscalation > 6000 && system_mode == ATTR_VAL_SYS_NORMAL && sns_intr_count[SENSOR_PIR])
+  {
     int currentRFPoll = sensorArray[SENSOR_RF]->getPollPeriod();
-    if (currentRFPoll >= 200) { 
+    if (currentRFPoll >= 200)
+    {
       sensorArray[SENSOR_RF]->setPollPeriod(currentRFPoll / 2);
       toReturn = "Auto-Behavior: PIR detected motion. Doubled RF scan rate!";
       prevEscalation = millis();
@@ -97,10 +110,17 @@ String behaviorPIRMotionEscalation() {
   return toReturn;
 }
 
-String behaviorLaserBreakLockdown(bool sensorTripped[]) {
+/// @brief If the system is in quiet mode and the photodiode detects a change in light
+/// (i.e. laser stops pointing at it) then the system to go into lockdown mode.
+/// @param sensorTripped Array of interrupt state flags (aligned with sensor enum order/value)
+/// @return If the system behavior changed, returns a message that can be sent as a
+/// log message; otherwise returns an empty string (the system behavior did not change)
+String behaviorLaserBreakLockdown(bool sensorTripped[])
+{
   String toReturn = "";
 
-  if (sensorTripped[SENSOR_PHOTO] && (system_mode == ATTR_VAL_SYS_QUIET || inPowerSaveMode)) {
+  if (sensorTripped[SENSOR_PHOTO] && (system_mode == ATTR_VAL_SYS_QUIET || inPowerSaveMode))
+  {
     system_mode = ATTR_VAL_SYS_LOCKDOWN;
 
     lastMotionTime = millis();
@@ -110,7 +130,7 @@ String behaviorLaserBreakLockdown(bool sensorTripped[]) {
       sensorArray[i]->setReadingType(READING_TRIGPOLL);
       sensorArray[i]->setSendOnIntr(true);
       sensorArray[i]->setPollPeriod(lockdownPollPeriod_ms);
-      sensorArray[i]->setSensitivity(trigMin[i] + sensitivityStep[i]);
+      sensorArray[i]->setSensitivity(100);
     }
     toReturn = "Laser tripped in QUIET mode! Forced LOCKDOWN mode.";
   }
@@ -118,19 +138,23 @@ String behaviorLaserBreakLockdown(bool sensorTripped[]) {
   return toReturn;
 }
 
-// TODO:
-String behaviorRFSpikeDefense() {
+/// @brief If RF detects network traffic, then increase the sensitivity of the other 2 sensors
+/// @return If the system behavior changed, returns a message that can be sent as a
+/// log message; otherwise returns an empty string (the system behavior did not change)
+String behaviorRFSpikeDefense()
+{
   String toReturn = "";
 
   static unsigned long prevSpike = millis();
 
   if (millis() - prevSpike > 2000)
   {
-    if (sns_intr_count[SENSOR_RF] > 3) {
+    if (sns_intr_count[SENSOR_RF] > 3)
+    {
       sensorArray[SENSOR_PIR]->increaseSensitivityLevel(20);
       sensorArray[SENSOR_PHOTO]->increaseSensitivityLevel(20);
       toReturn = "Auto-Behavior: High RF traffic detected! Boosted PIR & Photo sensitivity.";
-      prevSpike = millis(); 
+      prevSpike = millis();
     }
   }
 
@@ -141,7 +165,11 @@ String behaviorRFSpikeDefense() {
 // // CATEGORY 2: OPEN-FEATURE BEHAVIORS (10 Points)
 // // =========================================================================
 
-String behaviorIdlePowerSave() {
+/// @brief  12 seconds of no motion causes the system to cut down the sensor polling rate
+/// @return If the system behavior changed, returns a message that can be sent as a
+/// log message; otherwise returns an empty string (the system behavior did not change)
+String behaviorIdlePowerSave()
+{
   String toReturn = "";
 
   bool allDisabled = true;
@@ -155,12 +183,12 @@ String behaviorIdlePowerSave() {
   }
 
   if (!allDisabled &&
-    millis() - lastMotionTime > 12000 &&
-    sensorArray[SENSOR_PIR]->getPollPeriod() <= 3000 &&
-    !inPowerSaveMode &&
-    system_mode != ATTR_VAL_SYS_LOCKDOWN &&
-    system_mode != ATTR_VAL_SYS_MAINT &&
-    system_mode != ATTR_VAL_SYS_CUSTOM)
+      millis() - lastMotionTime > 12000 &&
+      sensorArray[SENSOR_PIR]->getPollPeriod() <= 3000 &&
+      !inPowerSaveMode &&
+      system_mode != ATTR_VAL_SYS_LOCKDOWN &&
+      system_mode != ATTR_VAL_SYS_MAINT &&
+      system_mode != ATTR_VAL_SYS_CUSTOM)
   {
     system_mode = ATTR_VAL_SYS_CUSTOM;
     sensorArray[SENSOR_PIR]->setPollPeriod(5000);
@@ -177,25 +205,30 @@ String behaviorIdlePowerSave() {
   return toReturn;
 }
 
-String behaviorRecalibrate() {
+/// @brief Recalibrates every sensor n every minute that is a multiple of 5 (every five minutes)
+/// @return If the system behavior changed, returns a message that can be sent as a
+/// log message; otherwise returns an empty string (the system behavior did not change)
+String behaviorRecalibrate()
+{
   // A static variable remembers its value even after the function finishes
   // periClock[0] is Hours, periClock[1] is Minutes
   String toReturn = "";
 
   static bool alreadyReset = false;
 
-  if (!(periClock[1]%5)) {
+  if (!(periClock[1] % 5))
+  {
     if (!alreadyReset)
     {
       alreadyReset = true;
       // Serial.println("Auto-Behavior: Five-minute reset. Recalibrating sensor.");
       sendLogMsgToCtrlr("Auto-Behavior: Five-minute reset. Recalibrating sensor.");
       toReturn = "Recalibration: ";
-      
+
       for (int i = 1; i <= NUM_OF_SENSORS; i++)
       {
         sensorArray[i]->setPollPeriod(2000);
-        toReturn += targetNames[i-1];
+        toReturn += targetNames[i - 1];
         toReturn += ": ";
         toReturn += sensorArray[i]->calibrate() ? "Passed; " : "Failed; ";
       }
@@ -209,6 +242,11 @@ String behaviorRecalibrate() {
   return toReturn;
 }
 
+/// @brief If 2 out of the 3 devices get triggered, turn on LED
+/// @param sensorTrippedCount Array of counter variables that kept track of each
+/// interrupt that occured within a sensor's particular polling period
+/// @return If the system behavior changed, returns a message that can be sent as a
+/// log message; otherwise returns an empty string (the system behavior did not change)
 String behaviorLEDMultipleEvents(int sensorTrippedCount[])
 {
   String toReturn = "";
@@ -244,7 +282,7 @@ String behaviorLEDMultipleEvents(int sensorTrippedCount[])
   }
 
   // 4. Fix the State-Leak: Periodically clear counts for non-polling (TRIG) sensors
-  // We simulate a 2-second "poll cycle" to clear the arrays so interrupts 
+  // We simulate a 2-second "poll cycle" to clear the arrays so interrupts
   // don't stack to infinity and permanently lock your behaviors.
   if (millis() - lastClearTime >= 2000)
   {
@@ -261,14 +299,20 @@ String behaviorLEDMultipleEvents(int sensorTrippedCount[])
   return toReturn;
 }
 
-String behaviorAutoResetVault(int sensorInterruptCount[]) {
+/// @brief If the laser hits the photodiode and no motion is detected for 10 seconds,
+/// when in LOCKDOWN mode, the system assumes the vault has been successfully secured and goes to NORMAL mode
+/// @param sensorInterruptCount Array of counter variables that kept track of each
+/// @return If the system behavior changed, returns a message that can be sent as a
+/// log message; otherwise returns an empty string (the system behavior did not change)
+String behaviorAutoResetVault(int sensorInterruptCount[])
+{
 
   String toReturn = "";
 
   if (system_mode == ATTR_VAL_SYS_LOCKDOWN)
   {
     static int totalNumOfIntr = 0;
-    if (millis()-lastMotionTime < 10000)
+    if (millis() - lastMotionTime < 10000)
     {
       for (int i = 1; i <= NUM_OF_SENSORS; i++)
       {
@@ -282,37 +326,39 @@ String behaviorAutoResetVault(int sensorInterruptCount[]) {
     }
     else
     {
-      
+
       totalNumOfIntr = 0;
       system_mode = ATTR_VAL_SYS_NORMAL;
-      
+
       for (int i = 1; i <= NUM_OF_SENSORS; i++)
       {
         sensorArray[i]->setPollPeriod(normalPollPeriod_ms);
         sensorArray[i]->setReadingType(READING_TRIGPOLL);
         sensorArray[i]->setSendOnIntr(true);
       }
-      
+
       toReturn = "Auto-Behavior: Vault secured and 10s clear of motion. Autonomously returning to NORMAL mode.";
       lastMotionTime = millis();
     }
   }
-  
+
   return toReturn;
 }
-
-
 
 /**********************************
     COMMANDS
 **********************************/
+
+/// @brief Processes `demand` commands
+/// @param msg_to_ctrlr Message object
+/// @return `true` if the action executed successfully
 bool cmd_demand(Peri_Msg &msg_to_ctrlr)
 {
   Target target = msg_from_ctrlr.target;
 
   int curTarget = (target == TARGET_SYSTEM) ? 1 : target;
   int end = (target == TARGET_SYSTEM) ? NUM_OF_SENSORS : target;
-  
+
   for (curTarget; curTarget <= end; curTarget++)
   {
     msg_to_ctrlr.sensorReadingType[curTarget] = READING_DEMAND;
@@ -323,10 +369,9 @@ bool cmd_demand(Peri_Msg &msg_to_ctrlr)
   return true;
 }
 
-// TODO: Clean up b/c all targets have same attributes
-/// @brief 
-/// @param msg_to_ctrlr 
-/// @return 
+/// @brief Processes `set` commands
+/// @param msg_to_ctrlr Message object
+/// @return `true` if the action executed successfully
 bool cmd_set(Peri_Msg &msg_to_ctrlr)
 {
   if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
@@ -334,14 +379,15 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
     rejectionReason = "Invalid attribute name";
     return false;
   }
-  
+
   Target target = msg_from_ctrlr.target;
 
-  if (target == SENSOR_PIR || target == TARGET_SYSTEM) lastMotionTime = millis();
+  if (target == SENSOR_PIR || target == TARGET_SYSTEM)
+    lastMotionTime = millis();
 
   int curTarget = (target == TARGET_SYSTEM) ? 1 : target;
   int end = (target == TARGET_SYSTEM) ? NUM_OF_SENSORS : target;
-  
+
   for (curTarget; curTarget <= end; curTarget++)
   {
     if (sensorArray[curTarget]->getCalibrationError())
@@ -353,20 +399,22 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         rejectionReason = "Cannot be set b/c of prev. calibration error";
         return false;
       }
-      else continue;
+      else
+        continue;
     }
-    
+
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_PERIOD)
     {
       // Check if the value changed, OR if it was disabled, OR if polling was turned off (like in quiet mode)
-      if (msg_from_ctrlr.val1 != sensorArray[curTarget]->getPollPeriod() || 
-          !sensorArray[curTarget]->isEnabled() || 
+      if (msg_from_ctrlr.val1 != sensorArray[curTarget]->getPollPeriod() ||
+          !sensorArray[curTarget]->isEnabled() ||
           !sensorArray[curTarget]->isPollingEnabled())
       {
         system_mode = ATTR_VAL_SYS_CUSTOM;
       }
       sensorArray[curTarget]->setPollPeriod(msg_from_ctrlr.val1);
-      if (target = SENSOR_PIR) lastMotionTime = millis();
+      if (target = SENSOR_PIR)
+        lastMotionTime = millis();
     }
     else if (msg_from_ctrlr.attr_name == ATTR_NAME_SENSITIVITY)
     {
@@ -387,13 +435,13 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         sensorArray[curTarget]->setPollingEnabled(false);
         sensorArray[curTarget]->setSendOnIntr(true);
         break;
-        case ATTR_VAL_SNS_POLL:
+      case ATTR_VAL_SNS_POLL:
         system_mode = (sensorArray[curTarget]->getReadingType() != READING_POLL) ? ATTR_VAL_SYS_CUSTOM : system_mode;
         sensorArray[curTarget]->setReadingType(READING_POLL);
         sensorArray[curTarget]->setPollingEnabled(true);
         sensorArray[curTarget]->setSendOnIntr(false);
         break;
-        case ATTR_VAL_SNS_TRIGPOLL:
+      case ATTR_VAL_SNS_TRIGPOLL:
         system_mode = (sensorArray[curTarget]->getReadingType() != READING_TRIGPOLL) ? ATTR_VAL_SYS_CUSTOM : system_mode;
         sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
         sensorArray[curTarget]->setPollingEnabled(true);
@@ -401,12 +449,14 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         break;
       case ATTR_VAL_ENABLE:
         // If this sensor was prev. disabled, we are in a custom setting
-        if (!sensorArray[curTarget]->isEnabled()) system_mode = ATTR_VAL_SYS_CUSTOM;
+        if (!sensorArray[curTarget]->isEnabled())
+          system_mode = ATTR_VAL_SYS_CUSTOM;
         sensorArray[curTarget]->setEnabled(true);
         break;
-        case ATTR_VAL_DISABLE:
+      case ATTR_VAL_DISABLE:
         // If this sensor was prev. enabled, we are in a custom setting
-        if (sensorArray[curTarget]->isEnabled()) system_mode = ATTR_VAL_SYS_CUSTOM;
+        if (sensorArray[curTarget]->isEnabled())
+          system_mode = ATTR_VAL_SYS_CUSTOM;
         sensorArray[curTarget]->setEnabled(false);
         break;
       case ATTR_VAL_SYS_NORMAL:
@@ -451,7 +501,7 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         sensorArray[curTarget]->setEnabled(true);
         sensorArray[curTarget]->setPollingEnabled(false);
         sensorArray[curTarget]->setSendOnIntr(true);
-        sensorArray[curTarget]->setSensitivity(trigMin[curTarget] + sensitivityStep[curTarget]);
+        sensorArray[curTarget]->setSensitivity(90);
 
         if (target == TARGET_SYSTEM)
         {
@@ -468,8 +518,8 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
         sensorArray[curTarget]->setPollPeriod(lockdownPollPeriod_ms);
         sensorArray[curTarget]->setReadingType(READING_TRIGPOLL);
         sensorArray[curTarget]->setSendOnIntr(true);
-        sensorArray[curTarget]->setSensitivity(trigMin[curTarget] + sensitivityStep[curTarget]);
-        
+        sensorArray[curTarget]->setSensitivity(100);
+
         if (target == TARGET_SYSTEM)
         {
           system_mode = msg_from_ctrlr.attr_val;
@@ -489,12 +539,13 @@ bool cmd_set(Peri_Msg &msg_to_ctrlr)
     // system_mode = msg_from_ctrlr.attr_val;
     msg_to_ctrlr.sensorReadingType[curTarget] = READING_INVALID;
   }
-  
+
   return true;
 }
 
-// TODO:
-// ... [Keep cmd_get and cmd_schedule similarly flattened] ...
+/// @brief Processes `get` commands
+/// @param msg_to_ctrlr Message object
+/// @return `true` if the action executed successfully
 bool cmd_get(Peri_Msg &msg_to_ctrlr)
 {
   if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
@@ -502,12 +553,12 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
     rejectionReason = "Invalid attribute name";
     return false;
   }
-  
+
   Target target = msg_from_ctrlr.target;
 
   int curTarget = target == TARGET_SYSTEM ? 1 : target;
   int end = target == TARGET_SYSTEM ? NUM_OF_SENSORS : target;
-  
+
   for (curTarget; curTarget <= end; curTarget++)
   {
     if (msg_from_ctrlr.attr_name == ATTR_NAME_POLL_PERIOD)
@@ -538,12 +589,11 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
       {
         // If we're getting a sensor, return if it's enabled and also whether it's poll, trig, or trigpoll
         msg_to_ctrlr.sensorEnabled[curTarget] = sensorArray[curTarget]->isEnabled();
-        
+
         ReadingType curSensorReadingType = sensorArray[curTarget]->getReadingType();
         Attr_Val curSensorReadingTypeAsAttrVal = (Attr_Val)curSensorReadingType;
         msg_to_ctrlr.getResult[curTarget] = curSensorReadingTypeAsAttrVal;
       }
-    
     }
     msg_to_ctrlr.sensorReadingType[curTarget] = READING_GET;
   }
@@ -552,6 +602,9 @@ bool cmd_get(Peri_Msg &msg_to_ctrlr)
   return true;
 }
 
+/// @brief Behaves like a `set` command that can be delayed to a specified hour and minute
+/// @param msg_to_ctrlr Message object
+/// @return `true` if the action executed successfully
 bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
 {
   if (msg_from_ctrlr.attr_name == ATTR_NAME_INVALID)
@@ -563,26 +616,28 @@ bool cmd_schedule(Peri_Msg &msg_to_ctrlr)
   Target target = msg_from_ctrlr.target;
   int curTarget = (target == TARGET_SYSTEM) ? 1 : target;
   int end = (target == TARGET_SYSTEM) ? NUM_OF_SENSORS : target;
-  
+
   // Smartly pull from attr_val if it's a mode, otherwise grab val1
   int valToSchedule = (msg_from_ctrlr.attr_name == ATTR_NAME_MODE) ? msg_from_ctrlr.attr_val : msg_from_ctrlr.val1;
 
   for (curTarget; curTarget <= end; curTarget++)
   {
     sensorArray[curTarget]->setSchedule(
-        msg_from_ctrlr.attr_name, 
-        valToSchedule, 
+        msg_from_ctrlr.attr_name,
+        valToSchedule,
         msg_from_ctrlr.val2, // Hour
         msg_from_ctrlr.val3  // Minute
     );
   }
-  
+
   return true;
 }
 
+/// @brief Updates the clock array
+/// @return `true` if able to update the clock
 bool updateClock()
 {
-  return static_cast<RF*>(sensorArray[SENSOR_RF])->getTime(periClock);
+  return static_cast<RF *>(sensorArray[SENSOR_RF])->getTime(periClock);
 }
 
 void setup()
@@ -614,7 +669,6 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(PHOTO_BOARD_PIN), photo_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(RF_BOARD_PIN), rf_ISR, RISING);
 
-
   executeAction[ACTION_DEMAND] = cmd_demand;
   executeAction[ACTION_SET] = cmd_set;
   executeAction[ACTION_GET] = cmd_get;
@@ -624,12 +678,12 @@ void setup()
 
   // Calibrate objects
   bool calibrated = false;
-  
+
   for (int i = 1; i <= NUM_OF_SENSORS; i++)
   {
-    String logMsg = targetNames[i-1];
+    String logMsg = targetNames[i - 1];
     calibrated = sensorArray[i]->calibrate();
-    
+
     if (calibrated)
     {
       logMsg += " is booted up";
@@ -642,7 +696,8 @@ void setup()
     sensorArray[i]->setCalibrationError(!calibrated);
     sensorArray[i]->setEnabled(calibrated);
 
-    if (calibrated) {
+    if (calibrated)
+    {
       sensorArray[i]->setPollPeriod(2000);
     }
 
@@ -658,13 +713,6 @@ void setup()
   lastMotionTime = millis();
 }
 
-/*
-  TODO:
-  - Have RasPi trigger interrupt each time minute changes
-  - Have set update system variable that tracks if system mode is set or user custom
-  - Both this and controller: set sensor mode to poll and/or trig
-
-*/
 void loop()
 {
   // UART relay to RasPi
@@ -680,6 +728,7 @@ void loop()
 
   clockUpdated = updateClock();
 
+  // Only check schedules if the clock is working
   if (clockUpdated)
   {
     int currentHour = periClock[0];
@@ -709,7 +758,7 @@ void loop()
         msg_from_ctrlr.target = (Target)i;
         msg_from_ctrlr.attr_name = ATTR_NAME_MODE;
         msg_from_ctrlr.attr_val = (Attr_Val)scheduledVal;
-        
+
         Peri_Msg dummyMsg; // Dummy struct required for the function signature
         cmd_set(dummyMsg);
       }
@@ -718,6 +767,7 @@ void loop()
 
   bool sensorTripped[NUM_OF_SENSORS + INVALID_OFFSET] = {false};
 
+  // Tracking amount of interrupts
   for (int i = 1; i <= NUM_OF_SENSORS; i++)
   {
     bool curSensorTripped = sensorArray[i]->checkAndClearInterrupt(millis());
@@ -727,10 +777,11 @@ void loop()
       sensorTripped[i] = true;
       sns_intr_count[i]++;
 
-      if (i == SENSOR_PIR) lastMotionTime = millis();
+      if (i == SENSOR_PIR)
+        lastMotionTime = millis();
     }
   }
-    
+
   // Process Incoming Controller Messages
   if (receivedData)
   {
@@ -746,7 +797,7 @@ void loop()
     bool actionExecuted = executeAction[msg_from_ctrlr.action](msg_to_ctrlr_user);
     msg_to_ctrlr_user.recv_msg_error = !actionExecuted;
     String logMsg = "Peripheral: Got the message.";
-    
+
     if (!actionExecuted)
     {
       logMsg += "\nAction did not execute: reason:";
@@ -762,7 +813,8 @@ void loop()
     delay(10);
     if (clockUpdated)
     {
-      for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) msg_to_ctrlr_user.time[i] = periClock[i];
+      for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++)
+        msg_to_ctrlr_user.time[i] = periClock[i];
     }
     sendDataStructToController(msg_to_ctrlr_user);
     delay(10);
@@ -771,7 +823,6 @@ void loop()
   /*
     POLLING AND INTERRUPTS
   */
-  // --- Object-Oriented Polling Logic ---
   // Polling and polltrig data can use the same message
   Peri_Msg msg_to_ctrlr_poll_pollTrig = new_msg_to_ctrlr();
   msg_to_ctrlr_poll_pollTrig.recv_msg_error = false;
@@ -796,7 +847,8 @@ void loop()
   {
     if (clockUpdated)
     {
-      for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) msg_to_ctrlr_poll_pollTrig.time[i] = periClock[i];
+      for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++)
+        msg_to_ctrlr_poll_pollTrig.time[i] = periClock[i];
     }
     sendDataStructToController(msg_to_ctrlr_poll_pollTrig);
   }
@@ -805,7 +857,7 @@ void loop()
 
   // --- Hardware Interrupt Check ---
   Peri_Msg msg_to_ctrlr_intr = new_msg_to_ctrlr();
-  msg_to_ctrlr_intr.recv_msg_error = false;  
+  msg_to_ctrlr_intr.recv_msg_error = false;
   bool anyDetection = false;
 
   // Use the boolean states saved at the top of the loop!
@@ -818,12 +870,14 @@ void loop()
       msg_to_ctrlr_intr.sensorDetected[i] = true;
       if (clockUpdated)
       {
-        for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) msg_to_ctrlr_intr.time[i] = periClock[i];
+        for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++)
+          msg_to_ctrlr_intr.time[i] = periClock[i];
       }
       msg_to_ctrlr_intr.sensorReadingType[i] = READING_TRIG;
       sendDataStructToController(msg_to_ctrlr_intr);
     }
   }
+
   // ==========================================
   // RUN AUTONOMOUS BEHAVIORS
   // ==========================================
@@ -831,46 +885,43 @@ void loop()
 
   // Serial.println("Running 1");
   logMsg = behaviorPIRMotionEscalation();
-  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  if (!logMsg.isEmpty())
+    sendLogMsgToCtrlr(logMsg);
   delay(5);
-  
+
   // Serial.println("Running 2");
   logMsg = behaviorLaserBreakLockdown(sensorTripped);
-  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  if (!logMsg.isEmpty())
+    sendLogMsgToCtrlr(logMsg);
   delay(5);
-  
+
   // Serial.println("Running 3");
   logMsg = behaviorRFSpikeDefense();
-  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  if (!logMsg.isEmpty())
+    sendLogMsgToCtrlr(logMsg);
   delay(5);
-  
+
   // Serial.println("Running 4");
   logMsg = behaviorIdlePowerSave();
-  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  if (!logMsg.isEmpty())
+    sendLogMsgToCtrlr(logMsg);
   delay(5);
-  
+
   // Serial.println("Running 5");
   logMsg = behaviorRecalibrate();
-  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  if (!logMsg.isEmpty())
+    sendLogMsgToCtrlr(logMsg);
   delay(5);
-  
+
   // Serial.println("Running 6");
   logMsg = behaviorLEDMultipleEvents(sns_intr_count);
-  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  if (!logMsg.isEmpty())
+    sendLogMsgToCtrlr(logMsg);
   delay(5);
 
   // Serial.println("Running 7");
   logMsg = behaviorAutoResetVault(sns_intr_count);
-  if (!logMsg.isEmpty()) sendLogMsgToCtrlr(logMsg);
+  if (!logMsg.isEmpty())
+    sendLogMsgToCtrlr(logMsg);
   delay(5);
-
-  // // TODO: Do we need this? I think we're double-sending when an interrupt happens
-  // if (anyDetection)
-  // {
-  //   if (clockUpdated)
-  //   {
-  //     for (int i = 0; i < NUM_OF_TIME_COMPONENTS; i++) msg_to_ctrlr_intr.time[i] = periClock[i];
-  //   }
-  //   sendDataStructToController(msg_to_ctrlr_intr);
-  // }
 }
